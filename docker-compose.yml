@@ -18,3 +18,17 @@ services:
       - TERM=${TERM}
       # Если время на сервере отличается
       # - TZ=Europe/Moscow
+
+  # Веб-интерфейс. Открывается в браузере на http://localhost:8080
+  # Использует тот же образ, конфиг и базу, что и основной сервис.
+  hh_web:
+    extends:
+      service: hh_applicant_tool
+    container_name: hh_web
+    user: docker
+    # Слушаем на всех интерфейсах внутри контейнера, наружу пробрасываем
+    # только на localhost хоста (никакого публичного доступа!)
+    command: hh-applicant-tool web-ui --host 0.0.0.0 --port 8080
+    ports:
+      - "127.0.0.1:8080:8080"
+    restart: unless-stopped
