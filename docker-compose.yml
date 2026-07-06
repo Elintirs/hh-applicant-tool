@@ -19,16 +19,17 @@ services:
       # Если время на сервере отличается
       # - TZ=Europe/Moscow
 
-  # Веб-интерфейс. Открывается в браузере на http://localhost:8080
+  # Веб-панель управления. Открывается в браузере на http://localhost:8090
+  # Все команды CLI, полный конфиг и AI-настройки с пробными запросами.
   # Использует тот же образ, конфиг и базу, что и основной сервис.
-  hh_web:
+  hh_panel:
     extends:
       service: hh_applicant_tool
-    container_name: hh_web
+    container_name: hh_panel
     user: docker
     # Слушаем на всех интерфейсах внутри контейнера, наружу пробрасываем
-    # только на localhost хоста (никакого публичного доступа!)
-    command: hh-applicant-tool web-ui --host 0.0.0.0 --port 8080
+    # только на localhost хоста (панель запускает любые команды — не наружу!)
+    command: hh-applicant-tool webpanel --host 0.0.0.0 --port 8090
     ports:
-      - "127.0.0.1:8080:8080"
+      - "127.0.0.1:8090:8090"
     restart: unless-stopped

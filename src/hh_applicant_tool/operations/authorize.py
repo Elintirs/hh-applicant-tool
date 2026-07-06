@@ -242,8 +242,12 @@ class Operation(BaseOperation):
             logger.debug("Капчи нет, продолжаем.")
             return
 
+        import base64
+        import os
+
         args = self._args
-        if not (args.use_kitty or args.use_sixel):
+        web_panel = os.environ.get("HH_WEBPANEL")
+        if not (args.use_kitty or args.use_sixel or web_panel):
             raise RuntimeError(
                 "Требуется ввод капчи! Используйте --kitty или --sixel."
             )
@@ -254,6 +258,13 @@ class Operation(BaseOperation):
             print_kitty_image(img_bytes)
         elif args.use_sixel:
             print_sixel_mage(img_bytes)
+        else:
+            # Веб-панель: отдаём PNG как base64-маркер, панель отрисует картинкой
+            print(
+                "[[WEBCAPTCHA]]"
+                + base64.b64encode(img_bytes).decode("ascii"),
+                flush=True,
+            )
 
         captcha_text = (
             await asyncio.to_thread(input, "Введите текст с картинки: ")

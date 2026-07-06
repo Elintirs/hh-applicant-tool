@@ -989,9 +989,10 @@ class Operation(BaseOperation):
                         logger.debug("prompt: %s", msg)
                         letter = self.cover_letter_ai.complete(msg)
                     else:
-                        letter = (
-                            rand_text(self.cover_letter) % message_placeholders
-                        )
+                        src = self._select_letter_template(vacancy)
+                        if src is None:
+                            src = self.cover_letter
+                        letter = rand_text(src) % message_placeholders
 
                     logger.debug(letter)
 
@@ -1418,6 +1419,54 @@ class Operation(BaseOperation):
         #     params["responses_count_enabled"] = bool2str(self.responses_count_enabled)
 
         return params
+
+    def _select_letter_template(self, vacancy: SearchVacancy) -> str | None:
+        """Выбирает текст письма по ключевым словам (режим без AI).
+
+        Идёт по шаблонам из config['letter_templates'] по порядку и берёт
+        первый, чьё ключевое слово встречается в названии/описании вакансии.
+        Шаблон с пустыми ключевыми словами — резервный (fallback). Если
+        подходящего нет — None (тогда используется обычный self.cover_letter).
+        """
+        templates = self.tool.config.get("letter_templates")
+        if not templates:
+            return None
+
+        snippet = vacancy.get("snippet") or {}
+        haystack = " ".join(
+            filter(
+                None,
+                [
+                    vacancy.get("name"),
+                    snippet.get("requirement"),
+                    snippet.get("responsibility"),
+                ],
+            )
+        ).lower()
+
+        fallback = None
+        for tpl in templates:
+            if not isinstance(tpl, dict):
+                continue
+            text = tpl.get("text")
+            if not text:
+                continue
+            keywords = tpl.get("keywords") or []
+            if isinstance(keywords, str):
+                keywords = keywords.split(",")
+            keywords = [k.strip().lower() for k in keywords if k and k.strip()]
+            if not keywords:
+                if fallback is None:
+                    fallback = text
+                continue
+            if any(kw in haystack for kw in keywords):
+                logger.debug(
+                    "Выбран шаблон письма '%s' для вакансии %s",
+                    tpl.get("name"),
+                    vacancy.get("name"),
+                )
+                return text
+        return fallback
 
     def _get_vacancies(
         self, resume_id: str | None = None

@@ -380,6 +380,8 @@ class HHApplicantTool(MegaTool):
             system_prompt=system_prompt,
             base_url=base_url,
             rate_limit=c.get("rate_limit", 40),
+            # Локальные модели отвечают дольше дефолтных 15с — таймаут из конфига
+            timeout=c.get("timeout", 15.0),
             session=self.openai_session,
         )
 
