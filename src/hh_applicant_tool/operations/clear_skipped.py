@@ -35,8 +35,7 @@ class Operation(BaseOperation):
             help="Только показать количество записей без удаления",
         )
 
-    def run(self, tool: HHApplicantTool) -> None:
-        args = tool.args
+    def run(self, tool: HHApplicantTool, args: Namespace) -> None:
         repo = tool.storage.skipped_vacancies
 
         if args.reason:

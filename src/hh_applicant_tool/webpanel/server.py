@@ -21,6 +21,7 @@ import subprocess
 import sys
 import threading
 import time as _time
+import uuid
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 from typing import TYPE_CHECKING, Any
@@ -249,30 +250,35 @@ class Scheduler:
         self._runner = runner
         self._path = Path(path)
         self._lock = threading.Lock()
-        self._data = self._load()
+        self._jobs = self._load()
 
-    def _default(self) -> dict:
+    def _norm(self, j: dict) -> dict:
         return {
-            "enabled": False,
-            "time": "09:00",
-            "argv": ["apply-vacancies", "--ai"],
-            "last_run_date": None,
+            "id": str(j.get("id") or uuid.uuid4().hex[:8]),
+            "name": str(j.get("name") or ""),
+            "enabled": bool(j.get("enabled")),
+            "time": str(j.get("time") or "09:00"),
+            "argv": [str(x) for x in (j.get("argv") or [])],
+            "last_run_date": j.get("last_run_date"),
         }
 
-    def _load(self) -> dict:
+    def _load(self) -> list:
         try:
             d = json.loads(self._path.read_text(encoding="utf-8"))
-            base = self._default()
-            base.update({k: d[k] for k in base if k in d})
-            return base
+            if isinstance(d, dict) and isinstance(d.get("jobs"), list):
+                return [self._norm(j) for j in d["jobs"] if isinstance(j, dict)]
+            # миграция со старого формата (одна задача)
+            if isinstance(d, dict) and d.get("time"):
+                return [self._norm(d)]
         except Exception:  # noqa: BLE001
-            return self._default()
+            pass
+        return []
 
     def _persist(self) -> None:
         try:
             self._path.parent.mkdir(parents=True, exist_ok=True)
             self._path.write_text(
-                json.dumps(self._data, ensure_ascii=False, indent=2),
+                json.dumps({"jobs": self._jobs}, ensure_ascii=False, indent=2),
                 encoding="utf-8",
             )
         except Exception:  # noqa: BLE001
@@ -280,15 +286,24 @@ class Scheduler:
 
     def get(self) -> dict:
         with self._lock:
-            return dict(self._data)
+            return {"jobs": [dict(j) for j in self._jobs]}
 
-    def save(self, enabled: bool, time_str: str, argv: list[str]) -> dict:
+    def save(self, jobs: list) -> dict:
         with self._lock:
-            self._data["enabled"] = bool(enabled)
-            self._data["time"] = time_str
-            self._data["argv"] = [str(x) for x in argv]
+            old = {j["id"]: j for j in self._jobs}
+            new = []
+            for j in jobs:
+                nj = self._norm(j)
+                prev = old.get(nj["id"])
+                # last_run_date сохраняем, только если время не менялось
+                if prev and prev.get("time") == nj["time"]:
+                    nj["last_run_date"] = prev.get("last_run_date")
+                else:
+                    nj["last_run_date"] = None
+                new.append(nj)
+            self._jobs = new
             self._persist()
-            return dict(self._data)
+            return {"jobs": [dict(j) for j in new]}
 
     def start(self) -> None:
         threading.Thread(target=self._loop, daemon=True).start()
@@ -302,23 +317,26 @@ class Scheduler:
             _time.sleep(25)
 
     def _tick(self) -> None:
-        with self._lock:
-            d = dict(self._data)
-        if not d.get("enabled") or not d.get("argv"):
-            return
         now = datetime.datetime.now()
-        if now.strftime("%H:%M") != d.get("time"):
-            return
+        hm = now.strftime("%H:%M")
         today = now.strftime("%Y-%m-%d")
-        if d.get("last_run_date") == today:
-            return
-        if self._runner.is_running():
-            return  # занят — попробуем в следующий тик (в пределах той же минуты)
-        ok, _msg = self._runner.start(list(d["argv"]))
-        if ok:
-            with self._lock:
-                self._data["last_run_date"] = today
-                self._persist()
+        with self._lock:
+            jobs = [dict(j) for j in self._jobs]
+        for j in jobs:
+            if not j.get("enabled") or not j.get("argv"):
+                continue
+            if j.get("time") != hm or j.get("last_run_date") == today:
+                continue
+            if self._runner.is_running():
+                return  # занят — один запуск за раз, попробуем следующим тиком
+            ok, _msg = self._runner.start(list(j["argv"]))
+            if ok:
+                with self._lock:
+                    for real in self._jobs:
+                        if real["id"] == j["id"]:
+                            real["last_run_date"] = today
+                    self._persist()
+            return  # не запускаем больше одной задачи за тик
 
 
 # --------------------------------------------------------------------------- #
@@ -376,6 +394,10 @@ class _Handler(BaseHTTPRequestHandler):
             self._json(
                 {"templates": self._load_config_dict().get("letter_templates") or []}
             )
+        elif path == "/api/stats":
+            self._json(self._stats())
+        elif path == "/api/resumes":
+            self._json({"resumes": self._resumes()})
         elif path == "/api/state":
             self._json({"running": self.runner.is_running()})
         elif path == "/api/stream":
@@ -420,20 +442,32 @@ class _Handler(BaseHTTPRequestHandler):
         elif path == "/api/ai-test":
             self._ai_test(self._body())
         elif path == "/api/schedule":
-            b = self._body()
-            time_str = str(b.get("time") or "").strip()
-            argv = b.get("argv") or []
+            jobs = self._body().get("jobs")
+            if not isinstance(jobs, list):
+                self._json({"ok": False, "error": "Ожидался список задач"}, 400)
+                return
             import re as _re
 
-            if not _re.match(r"^([01]\d|2[0-3]):[0-5]\d$", time_str):
-                self._json({"ok": False, "error": "Время в формате ЧЧ:ММ"}, 400)
-                return
-            if not isinstance(argv, list) or not all(
-                isinstance(x, str) for x in argv
-            ):
-                self._json({"ok": False, "error": "Неверная команда"}, 400)
-                return
-            data = self.scheduler.save(bool(b.get("enabled")), time_str, argv)
+            for j in jobs:
+                if not isinstance(j, dict):
+                    self._json({"ok": False, "error": "Неверная задача"}, 400)
+                    return
+                t = str(j.get("time") or "")
+                if not _re.match(r"^([01]\d|2[0-3]):[0-5]\d$", t):
+                    self._json(
+                        {"ok": False, "error": f"Время в формате ЧЧ:ММ: {t!r}"},
+                        400,
+                    )
+                    return
+                argv = j.get("argv") or []
+                if not isinstance(argv, list) or not all(
+                    isinstance(x, str) for x in argv
+                ):
+                    self._json(
+                        {"ok": False, "error": "Неверная команда в задаче"}, 400
+                    )
+                    return
+            data = self.scheduler.save(jobs)
             self._json({"ok": True, "schedule": data})
         elif path == "/api/templates":
             tpls = self._body().get("templates")
@@ -464,6 +498,8 @@ class _Handler(BaseHTTPRequestHandler):
                 self._json({"ok": True})
             except Exception as e:  # noqa: BLE001
                 self._json({"ok": False, "error": str(e)}, 500)
+        elif path == "/api/stats/sync":
+            self._stats_sync()
         else:
             self.send_error(404)
 
@@ -568,6 +604,76 @@ class _Handler(BaseHTTPRequestHandler):
             resp = client.complete(b.get("message") or "Привет!")
             elapsed = int((time.monotonic() - t0) * 1000)
             self._json({"ok": True, "response": resp, "elapsed_ms": elapsed})
+        except Exception as e:  # noqa: BLE001
+            self._json({"ok": False, "error": str(e)})
+
+    def _stats(self) -> dict:
+        try:
+            conn = self.tool.storage.negotiations.conn
+        except Exception:  # noqa: BLE001
+            return {"error": "Нет доступа к базе"}
+
+        def rows(sql: str) -> list:
+            try:
+                return list(conn.execute(sql).fetchall())
+            except Exception:  # noqa: BLE001
+                return []
+
+        by_state = {str(k): v for k, v in rows(
+            "SELECT state, COUNT(*) FROM negotiations GROUP BY state"
+        )}
+        skipped = {str(k): v for k, v in rows(
+            "SELECT reason, COUNT(*) FROM skipped_vacancies GROUP BY reason"
+        )}
+        daily_neg = {str(k): v for k, v in rows(
+            "SELECT date(created_at) d, COUNT(*) FROM negotiations "
+            "WHERE created_at >= date('now','-29 days') GROUP BY d ORDER BY d"
+        )}
+        daily_skip = {str(k): v for k, v in rows(
+            "SELECT date(created_at) d, COUNT(*) FROM skipped_vacancies "
+            "WHERE created_at >= date('now','-29 days') GROUP BY d ORDER BY d"
+        )}
+        per_resume = [
+            {"resume": str(a), "count": b}
+            for a, b in rows(
+                "SELECT COALESCE(resume_id,'—'), COUNT(*) FROM negotiations "
+                "GROUP BY resume_id ORDER BY COUNT(*) DESC LIMIT 10"
+            )
+        ]
+        return {
+            "by_state": by_state,
+            "skipped_by_reason": skipped,
+            "daily_negotiations": daily_neg,
+            "daily_skipped": daily_skip,
+            "per_resume": per_resume,
+            "total_negotiations": sum(by_state.values()),
+            "total_skipped": sum(skipped.values()),
+        }
+
+    def _resumes(self) -> list:
+        try:
+            items = self.tool.get_resumes()
+        except Exception:  # noqa: BLE001
+            return []
+        out = []
+        for r in items or []:
+            st = r.get("status") or {}
+            out.append(
+                {
+                    "id": r.get("id"),
+                    "title": r.get("title") or "Без названия",
+                    "status": st.get("name") or "",
+                }
+            )
+        return out
+
+    def _stats_sync(self) -> None:
+        try:
+            count = 0
+            for item in self.tool.get_negotiations("active"):
+                self.tool.storage.negotiations.save(item)
+                count += 1
+            self._json({"ok": True, "count": count})
         except Exception as e:  # noqa: BLE001
             self._json({"ok": False, "error": str(e)})
 
@@ -692,6 +798,23 @@ PAGE = r"""<!DOCTYPE html>
   #stdin{flex:1}
   .warn{background:#78350f;color:#fde68a;font-size:12px;padding:6px 12px}
   code{background:var(--panel);padding:1px 5px;border-radius:4px;font-size:12px}
+  .cards{display:grid;grid-template-columns:repeat(auto-fit,minmax(125px,1fr));gap:12px;margin:8px 0}
+  .scard{background:var(--panel);border:1px solid var(--line);border-radius:10px;padding:14px}
+  .sval{font-size:25px;font-weight:700;line-height:1.1}
+  .slbl{color:var(--muted);font-size:12px;margin-top:3px}
+  .sh{font-size:13px;color:var(--muted);margin:18px 0 8px;text-transform:uppercase;letter-spacing:.04em}
+  .chart{display:flex;align-items:flex-end;gap:2px;height:120px;background:var(--panel2);border:1px solid var(--line);border-radius:8px;padding:8px}
+  .barcol{flex:1;height:100%;display:flex;align-items:flex-end}
+  .barstack{width:100%;display:flex;flex-direction:column;justify-content:flex-end;height:100%}
+  .barstack>div{width:100%;border-radius:2px 2px 0 0}
+  .bneg{background:#22c55e}.bskip{background:#475569}
+  .legend{font-size:11px;color:var(--muted);margin-top:6px;display:flex;align-items:center;gap:6px}
+  .lg{display:inline-block;width:10px;height:10px;border-radius:2px}
+  .brow{display:flex;align-items:center;gap:10px;margin-bottom:6px}
+  .blabel{width:160px;font-size:12.5px;flex-shrink:0}
+  .btrack{flex:1;background:var(--panel2);border-radius:5px;height:15px;overflow:hidden}
+  .bfill{height:100%;background:var(--accent);border-radius:5px}
+  .bcount{width:48px;text-align:right;font-size:12.5px;color:var(--muted)}
 </style>
 </head>
 <body>
@@ -722,7 +845,7 @@ const $=(s)=>document.querySelector(s);
 async function boot(){
   SCHEMA=await (await fetch('api/schema')).json();
   renderNav();
-  openConfig();
+  openStats();
   initStream();
   refreshState();
 }
@@ -732,6 +855,8 @@ function renderNav(){
   nav.innerHTML='';
   const mk=(label,fn,extra)=>{const d=document.createElement('div');d.className='navitem';d.textContent=label;if(extra)d.innerHTML=label+extra;d.onclick=fn;return d;};
   const sep=(t)=>{const d=document.createElement('div');d.className='navsep';d.textContent=t;return d;};
+  nav.appendChild(sep('Обзор'));
+  nav.appendChild(mk('📊 Статистика',()=>openStats()));
   nav.appendChild(sep('Настройки'));
   nav.appendChild(mk('⚙ Конфиг (config.json)',()=>openConfig()));
   nav.appendChild(mk('🤖 AI-провайдеры',()=>openAiConfig()));
@@ -749,6 +874,10 @@ function fieldFor(a,scope){
   const id=scope+'__'+a.dest;
   const wrap=document.createElement('div');wrap.className='field';
   const help=(a.help||'')+(a.flags&&a.flags.length?('  ['+a.flags.join(' ')+']'):'')+(a.positional?'  (позиционный)':'');
+  if(a.dest==='resume_id'){
+    wrap.innerHTML=`<label>Резюме</label><select id="${id}" data-dest="resume_id" data-kind="choice" data-flag="${a.flag||'--resume-id'}" data-pos="0" data-resume="1"><option value="">— авто (первое опубликованное) —</option><option value="" disabled>загрузка…</option></select><div class="fh">${esc(help)}</div>`;
+    return wrap;
+  }
   if(a.kind==='flag'||a.kind==='bool'){
     wrap.innerHTML=`<label class="chk"><input type="checkbox" id="${id}" data-dest="${a.dest}" data-kind="${a.kind}"> <span>${a.dest}</span></label><div class="fh">${esc(help)}</div>`;
     if(a.default===true)setTimeout(()=>{const el=$('#'+CSS.escape(id));if(el)el.checked=true;});
@@ -788,6 +917,7 @@ function openOp(name){
   c.appendChild(row);
   const idx=Array.from(document.querySelectorAll('.navitem')).findIndex(n=>n.textContent.trim().startsWith(op.name));
   setActive(idx);
+  populateResumeSelects();
 }
 
 function collect(scope){
@@ -822,7 +952,11 @@ function openRaw(){
   $('#rawcmd').addEventListener('keydown',e=>{if(e.key==='Enter')runRaw();});
 }
 function splitArgs(s){const re=/"([^"]*)"|'([^']*)'|(\S+)/g;const out=[];let m;while((m=re.exec(s)))out.push(m[1]??m[2]??m[3]);return out;}
-async function runRaw(){const s=$('#rawcmd').value.trim();if(!s)return;await run(splitArgs(s));}
+async function runRaw(){
+  let a=splitArgs($('#rawcmd').value.trim());
+  if(a.length&&(a[0]==='hh-applicant-tool'||a[0]==='hh_applicant_tool'))a=a.slice(1);
+  if(a.length)await run(a);
+}
 
 async function openConfig(){
   CURRENT={type:'config'};const c=$('#content');
@@ -830,7 +964,7 @@ async function openConfig(){
   c.innerHTML=`<h2>Конфиг (config.json)</h2><p class="hint">Полный JSON конфигурации — любые ключи. Здесь же токены (⚠ не показывайте экран посторонним).</p>
   <textarea id="cfg" rows="22" spellcheck="false"></textarea>
   <div class="row"><button onclick="saveConfig()">💾 Сохранить</button><button class="sec" onclick="openConfig()">Перечитать</button><span id="cfgmsg" class="fh"></span></div>`;
-  $('#cfg').value=data.text;setActive(0);
+  $('#cfg').value=data.text;setActive(1);
 }
 async function saveConfig(){
   const text=$('#cfg').value;
@@ -870,7 +1004,7 @@ function initStream(){
       else addLine('',ev.line);
     }
     else if(ev.type==='in'){addLine('in','> '+ev.line);}
-    else if(ev.type==='exit'){setRunning(false,'');addLine('exit','— завершено, код '+ev.code+' —');}
+    else if(ev.type==='exit'){setRunning(false,'');addLine('exit','— завершено, код '+ev.code+' —');if(CURRENT&&CURRENT.type==='stats')openStats();}
   };
   es.onerror=()=>{/* авто-реконнект */};
 }
@@ -978,30 +1112,107 @@ async function saveTemplates(){
   const m=$('#tpl-msg');m.textContent=r.ok?'✅ сохранено':('❌ '+(r.error||'ошибка'));m.style.color=r.ok?'#22c55e':'#fca5a5';
 }
 
-// ---- Расписание ---- #
+// ---- Расписание (несколько задач) ---- #
+let SJOBS=[];
 async function openSchedule(){
   CURRENT={type:'schedule'};
-  const s=await (await fetch('api/schedule')).json();
-  const cmd=(s.argv||['apply-vacancies','--ai']).join(' ');
-  const c=$('#content');
-  c.innerHTML=`<h2>Расписание</h2><p class="hint">Раз в сутки в указанное время панель сама запустит команду. Работает, пока запущен контейнер панели (у него <code>restart: unless-stopped</code>). Время — локальное (как на хосте). Если ПК/сервер выключен в это время — запуск пропускается.</p>
-  <div class="field"><label class="chk"><input type="checkbox" id="sch-en" ${s.enabled?'checked':''}> <span>Включить ежедневный запуск</span></label></div>
-  <div class="grid">
-    <div class="field"><label>Время (ЧЧ:ММ)</label><input type="time" id="sch-time" value="${esc(s.time||'09:00')}"></div>
-    <div class="field"><label>Последний запуск</label><input type="text" value="${esc(s.last_run_date||'—')}" disabled></div>
-  </div>
-  <div class="field"><label>Команда (аргументы CLI, как в «Произвольная команда»)</label><input type="text" id="sch-cmd" value="${esc(cmd)}"></div>
-  <p class="hint">Пример для откликов: <code>apply-vacancies --ai --ai-filter light --search "React OR Frontend"</code>. Совет: сначала проверьте её вручную с <code>--dry-run</code>.</p>
-  <div class="row"><button onclick="saveSchedule()">💾 Сохранить</button><button class="sec" onclick="runScheduleNow()">▶ Запустить сейчас</button><span id="sch-msg" class="fh"></span></div>`;
-  setActive(-1);
+  const d=await (await fetch('api/schedule')).json();
+  SJOBS=(d.jobs||[]).map(j=>({id:j.id,name:j.name||'',enabled:!!j.enabled,time:j.time||'09:00',cmd:(j.argv||[]).join(' '),last:j.last_run_date}));
+  renderSchedule();
 }
-function scheduleArgv(){return splitArgs($('#sch-cmd').value.trim());}
+function renderSchedule(){
+  let h=`<h2>Расписание</h2><p class="hint">Несколько задач, каждая в своё время (раз в сутки). Работает, пока запущен контейнер панели (<code>restart: unless-stopped</code>). Время локальное. Если ПК/сервер выключен в это время — запуск за этот день пропускается. Команду вводите как аргументы CLI, без <code>hh-applicant-tool</code>.</p><div id="sjobs">`;
+  SJOBS.forEach((j,i)=>h+=jobCard(j,i));
+  if(!SJOBS.length)h+='<p class="hint">Задач пока нет.</p>';
+  h+=`</div><div class="row"><button class="sec" onclick="sjobAdd()">＋ Добавить задачу</button><button onclick="saveSchedule()">💾 Сохранить</button><span id="sch-msg" class="fh"></span></div>`;
+  $('#content').innerHTML=h;setActive(-1);
+}
+function jobCard(j,i){
+  return `<details open><summary><b>${esc(j.name||j.cmd||'задача')}</b> — ${esc(j.time)} ${j.enabled?'✅':'⏸ выкл'}</summary><div class="inner">
+    <div class="field"><label class="chk"><input type="checkbox" data-si="${i}" data-sf="enabled" ${j.enabled?'checked':''}> <span>Включена</span></label></div>
+    <div class="field"><label>Время (ЧЧ:ММ)</label><input type="time" data-si="${i}" data-sf="time" value="${esc(j.time)}" style="max-width:170px"></div>
+    <div class="field"><label>Название (необязательно)</label><input type="text" data-si="${i}" data-sf="name" value="${esc(j.name)}" placeholder="Утренняя рассылка"></div>
+    <div class="field"><label>Команда (аргументы CLI)</label><input type="text" data-si="${i}" data-sf="cmd" value="${esc(j.cmd)}" placeholder="apply-vacancies --ai --ai-filter light --search &quot;React OR Frontend&quot;"></div>
+    <div class="row"><button class="sec" onclick="sjobRun(${i})">▶ Запустить сейчас</button><button class="danger" onclick="sjobDel(${i})">Удалить</button>${j.last?('<span class="fh">последний запуск: '+esc(j.last)+'</span>'):''}</div>
+  </div></details>`;
+}
+function sjobSync(){document.querySelectorAll('#sjobs [data-si]').forEach(el=>{const i=+el.dataset.si,f=el.dataset.sf;if(!SJOBS[i])return;SJOBS[i][f]=(el.type==='checkbox')?el.checked:el.value;});}
+function sjobAdd(){sjobSync();SJOBS.push({name:'',enabled:true,time:'09:00',cmd:'apply-vacancies --ai --ai-filter light'});renderSchedule();}
+function sjobDel(i){sjobSync();SJOBS.splice(i,1);renderSchedule();}
+function sjobRun(i){sjobSync();const a=splitArgs(SJOBS[i].cmd||'');if(a.length)run(a);else showToast('Команда пустая','error');}
 async function saveSchedule(){
-  const body={enabled:$('#sch-en').checked, time:$('#sch-time').value, argv:scheduleArgv()};
-  const r=await (await fetch('api/schedule',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(body)})).json();
+  sjobSync();
+  const jobs=SJOBS.map(j=>({id:j.id,name:j.name,enabled:j.enabled,time:j.time,argv:splitArgs(j.cmd||'')}));
+  const r=await (await fetch('api/schedule',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({jobs})})).json();
   const m=$('#sch-msg');m.textContent=r.ok?'✅ сохранено':('❌ '+(r.error||'ошибка'));m.style.color=r.ok?'#22c55e':'#fca5a5';
+  if(r.ok)openSchedule();
 }
-async function runScheduleNow(){const a=scheduleArgv();if(a.length)await run(a);}
+
+// ---- Статистика ---- #
+async function openStats(){
+  CURRENT={type:'stats'};
+  const c=$('#content');c.innerHTML='<h2>Статистика</h2><p class="hint">Загрузка...</p>';
+  let s;try{s=await (await fetch('api/stats')).json();}catch(e){c.innerHTML='<h2>Статистика</h2><p class="hint">Ошибка загрузки</p>';return;}
+  renderStats(s);
+}
+function renderStats(s){
+  const c=$('#content');
+  if(s.error){c.innerHTML='<h2>Статистика</h2><p class="hint">'+esc(s.error)+'</p>';return;}
+  const st=s.by_state||{};
+  const total=s.total_negotiations||0;
+  const invites=(st.interview||0)+(st.invitation||0);
+  const positive=(st.response||0)+invites;
+  const rate=total?Math.round(positive/total*100):0;
+  const cards=[
+    ['Всего откликов',total,'#3b82f6'],
+    ['Ответы',(st.response||0),'#22c55e'],
+    ['Приглашения',invites,'#a16207'],
+    ['Отказы',(st.discard||0),'#ef4444'],
+    ['Отклик-рейт',rate+'%','#8b5cf6'],
+    ['Отфильтровано AI',s.total_skipped||0,'#64748b'],
+  ];
+  let h='<div style="display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:10px"><h2 style="margin:0">Статистика</h2><div class="row" style="margin:0"><button class="sec" onclick="syncStats()">🔄 Синхронизировать с hh.ru</button><button class="sec" onclick="openStats()">Обновить</button></div></div>';
+  h+='<p class="hint">Данные из локальной БД. «Синхронизировать» подтягивает свежие отклики с hh.ru.</p>';
+  h+='<div class="cards">'+cards.map(([l,v,col])=>`<div class="scard"><div class="sval" style="color:${col}">${v}</div><div class="slbl">${l}</div></div>`).join('')+'</div>';
+  h+='<div class="sh">Активность за 30 дней</div>'+dailyChart(s.daily_negotiations||{},s.daily_skipped||{});
+  const LBL={active:'Активные',response:'Ответы',invitation:'Приглашения',interview:'Приглашения / интервью',discard:'Отказы'};
+  h+='<div class="sh">Отклики по статусам</div>'+barList(st,LBL);
+  if(Object.keys(s.skipped_by_reason||{}).length){h+='<div class="sh">Пропущено — причины</div>'+barList(s.skipped_by_reason,{ai_rejected:'AI отклонил',excluded_filter:'Фильтр слов',blocked:'Заблокирован'});}
+  c.innerHTML=h;setActive(0);
+}
+function dailyChart(neg,skip){
+  const days=[],now=new Date();
+  for(let i=29;i>=0;i--){const d=new Date(now);d.setDate(now.getDate()-i);days.push(d.toISOString().slice(0,10));}
+  const max=Math.max(1,...days.map(d=>(neg[d]||0)+(skip[d]||0)));
+  const bars=days.map(d=>{const n=neg[d]||0,sk=skip[d]||0;
+    return `<div class="barcol" title="${d}: ${n} откл., ${sk} проп."><div class="barstack"><div class="bskip" style="height:${Math.round(sk/max*100)}%"></div><div class="bneg" style="height:${Math.round(n/max*100)}%"></div></div></div>`;}).join('');
+  return `<div class="chart">${bars}</div><div class="legend"><span class="lg bneg"></span>отклики<span class="lg bskip" style="margin-left:8px"></span>пропущено (AI)</div>`;
+}
+function barList(obj,labels){
+  const e=Object.entries(obj);if(!e.length)return '<p class="hint">Нет данных</p>';
+  const max=Math.max(...e.map(x=>x[1]));
+  return e.sort((a,b)=>b[1]-a[1]).map(([k,v])=>`<div class="brow"><span class="blabel">${esc((labels&&labels[k])||k)}</span><div class="btrack"><div class="bfill" style="width:${Math.round(v/max*100)}%"></div></div><span class="bcount">${v}</span></div>`).join('');
+}
+async function syncStats(){
+  showToast('Синхронизация запущена — прогресс в консоли снизу','info');
+  await run(['refresh-negotiations']);  // по завершении статистика обновится сама
+}
+
+// ---- Выпадающий список резюме ---- #
+let RESUMES=null;
+async function getResumes(force){
+  if(RESUMES&&!force)return RESUMES;
+  try{const d=await (await fetch('api/resumes')).json();RESUMES=d.resumes||[];}catch(e){RESUMES=[];}
+  return RESUMES;
+}
+async function populateResumeSelects(force){
+  const sels=document.querySelectorAll('select[data-resume="1"]');
+  if(!sels.length)return;
+  const rs=await getResumes(force);
+  const opts='<option value="">— авто (первое опубликованное) —</option>'+
+    rs.map(r=>`<option value="${esc(r.id)}">${esc(r.title)}${r.status?(' — '+esc(r.status)):''}</option>`).join('');
+  sels.forEach(sel=>{const cur=sel.value;sel.innerHTML=opts;if(cur)sel.value=cur;});
+}
 
 function esc(s){return String(s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');}
 

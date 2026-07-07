@@ -254,17 +254,19 @@ class Operation(BaseOperation):
 
         img_bytes = await captcha_element.screenshot()
         print("\n[!] Требуется ввод капчи.")
-        if args.use_kitty:
-            print_kitty_image(img_bytes)
-        elif args.use_sixel:
-            print_sixel_mage(img_bytes)
-        else:
-            # Веб-панель: отдаём PNG как base64-маркер, панель отрисует картинкой
+        if web_panel:
+            # Веб-панель: отдаём PNG как base64-маркер (с переносом строки),
+            # панель отрисует картинкой. Приоритет выше kitty/sixel — они в
+            # веб-консоли всё равно не рисуются.
             print(
                 "[[WEBCAPTCHA]]"
                 + base64.b64encode(img_bytes).decode("ascii"),
                 flush=True,
             )
+        elif args.use_kitty:
+            print_kitty_image(img_bytes)
+        elif args.use_sixel:
+            print_sixel_mage(img_bytes)
 
         captcha_text = (
             await asyncio.to_thread(input, "Введите текст с картинки: ")
