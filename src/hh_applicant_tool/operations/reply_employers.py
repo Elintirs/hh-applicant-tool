@@ -120,6 +120,42 @@ class Operation(BaseOperation):
         logger.debug(f"{self.reply_message = }")
         self.reply_employers()
 
+    @staticmethod
+    def _looks_like_employer_reply(text: str) -> bool:
+        """True, если ответ похож на реплику работодателя или мусор.
+
+        Ловит частый сбой, когда модель вместо ответа соискателя пишет от лица
+        компании ("благодарю за интерес к вакансии", "[Имя работодателя]" и т.п.).
+        """
+        import re
+
+        if not text or not text.strip():
+            return True
+        # незаполненные плейсхолдеры вида [Имя работодателя]
+        if re.search(r"\[[^\]]{1,40}\]", text):
+            return True
+        low = text.lower()
+        markers = (
+            "благодарю за интерес к вакансии",
+            "благодарим за интерес",
+            "спасибо за интерес к вакансии",
+            "спасибо за отклик",
+            "благодарим за отклик",
+            "спасибо за ваш отклик",
+            "отправлю ваше резюме",
+            "передам ваше резюме",
+            "передам ваши данные",
+            "рассмотрим вашу кандидатуру",
+            "рассмотрим ваше резюме",
+            "приглашаем вас",
+            "свяжемся с вами",
+            "мы свяжемся",
+            "имя работодателя",
+            "название компании",
+            "нашей команды",
+        )
+        return any(m in low for m in markers)
+
     def reply_employers(self):
         blacklist = set(self.tool.get_blacklisted())
         me: datatypes.User = self.tool.get_me()
@@ -255,18 +291,40 @@ class Operation(BaseOperation):
                     elif self.cover_letter_ai:
                         try:
                             ai_query = (
-                                f"Вакансия: {placeholders['vacancy_name']}\n"
-                                f"История переписки:\n"
+                                f"Вакансия: {placeholders['vacancy_name']} "
+                                f"(компания: {placeholders['employer_name']}).\n"
+                                "Ты — СОИСКАТЕЛЬ, который откликнулся на эту "
+                                "вакансию. В истории ниже твои сообщения "
+                                "помечены «Я», сообщения компании — "
+                                "«Работодатель». Напиши следующее сообщение "
+                                "ОТ ЛИЦА СОИСКАТЕЛЯ («Я») в ответ работодателю. "
+                                "НЕ пиши от лица работодателя, не благодари за "
+                                "отклик, не предлагай прислать резюме "
+                                "руководству и не подписывайся именем компании — "
+                                "так пишет работодатель, а не ты.\n\n"
+                                "История переписки:\n"
                                 + "\n".join(message_history[-10:])
-                                + f"\n\nИнструкция: {self.message_prompt}"
+                                + f"\n\nЗадача: {self.message_prompt}"
                             )
-                            send_message = self.cover_letter_ai.complete(
-                                ai_query
-                            )
+                            send_message = (
+                                self.cover_letter_ai.complete(ai_query) or ""
+                            ).strip()
                             logger.debug(f"AI message: {send_message}")
                         except AIError as ex:
                             logger.warning(
                                 f"Ошибка OpenAI для чата {nid}: {ex}"
+                            )
+                            continue
+
+                        # Защита: иногда модель пишет ОТ ЛИЦА работодателя
+                        # (благодарит за отклик, "[Имя работодателя]" и т.п.).
+                        # Такой мусор в чат не отправляем.
+                        if self._looks_like_employer_reply(send_message):
+                            logger.warning(
+                                "AI-ответ похож на реплику работодателя или "
+                                "содержит плейсхолдеры, чат %s пропущен: %r",
+                                nid,
+                                send_message,
                             )
                             continue
                     else:

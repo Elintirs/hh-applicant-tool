@@ -541,13 +541,11 @@ class _Handler(BaseHTTPRequestHandler):
             if key not in valid or not isinstance(values, dict):
                 continue
             existing = cfg.get(key) or {}
-            merged = dict(values)
-            # пустой api_key = не менять текущий
-            if not merged.get("api_key"):
-                if existing.get("api_key"):
-                    merged["api_key"] = existing["api_key"]
-                else:
-                    merged.pop("api_key", None)
+            merged = dict(existing)  # сохраняем существующие ключи (timeout и пр.)
+            merged.update(values)  # накладываем непустые значения из формы
+            # пустой api_key в форме = не менять текущий
+            if not values.get("api_key") and existing.get("api_key"):
+                merged["api_key"] = existing["api_key"]
             merged = {
                 k: v for k, v in merged.items() if v not in (None, "")
             }
@@ -1022,7 +1020,7 @@ async function openAiConfig(){
   Object.keys(AICFG).forEach(key=>box.insertAdjacentHTML('beforeend',aiSectionHtml(key,AICFG[key])));
   Object.keys(AICFG).forEach(key=>{const v=AICFG[key].values||{};
     setVal(key,'base_url',v.base_url);setVal(key,'model',v.model);
-    setVal(key,'temperature',v.temperature);setVal(key,'max_completion_tokens',v.max_completion_tokens);setVal(key,'rate_limit',v.rate_limit);
+    setVal(key,'temperature',v.temperature);setVal(key,'max_completion_tokens',v.max_completion_tokens);setVal(key,'rate_limit',v.rate_limit);setVal(key,'system_prompt',v.system_prompt);
     const ak=document.getElementById('ai__'+key+'__api_key');if(ak&&v.api_key)ak.placeholder='● установлен — пусто = не менять';
   });
   setActive(-1);
@@ -1039,8 +1037,10 @@ function aiSectionHtml(key,sec){
       <div class="field"><label>max_completion_tokens</label><input type="number" id="${p}max_completion_tokens" placeholder="800"></div>
       <div class="field"><label>rate_limit (запросов/мин, 0=выкл)</label><input type="number" id="${p}rate_limit" placeholder="0"></div>
     </div>
-    <div class="field"><label>Пробный запрос — system (необязательно)</label><textarea id="${p}system" rows="2" placeholder="Ты — ассистент. Отвечай кратко."></textarea></div>
-    <div class="field"><label>Пробный запрос — сообщение</label><textarea id="${p}message" rows="2">Ответь одним словом: работает?</textarea></div>
+    ${key==='openai_cover_letter'?`<div class="field"><label>Системный промпт (СОХРАНЯЕТСЯ, используется для писем и решения тестов)</label><textarea id="${p}system_prompt" rows="5" placeholder="Ты пишешь сопроводительное письмо соискателя для отклика на вакансию на hh.ru. Пиши на русском, живо и по-деловому, 4–6 предложений. Верни ТОЛЬКО готовый текст письма."></textarea><div class="fh">Пусто = дефолтный промпт. Флаг --system-prompt (если передан) имеет приоритет.</div></div>`:''}
+    <div class="fh" style="border-top:1px solid var(--line);margin:12px 0 6px;padding-top:8px">🧪 Пробный запрос — только проверка модели, НЕ сохраняется</div>
+    <div class="field"><label>system (для теста)</label><textarea id="${p}system" rows="2" placeholder="Ты — ассистент. Отвечай кратко."></textarea></div>
+    <div class="field"><label>сообщение (для теста)</label><textarea id="${p}message" rows="2">Ответь одним словом: работает?</textarea></div>
     <div class="row"><button class="sec" onclick="aiTest('${key}')">🧪 Отправить пробный</button><span id="${p}result" class="fh"></span></div>
   </div></details>`;
 }
@@ -1052,13 +1052,16 @@ function collectAi(key){
   const t=g('temperature').value.trim();if(t!=='')out.temperature=Number(t);
   const mt=g('max_completion_tokens').value.trim();if(mt!=='')out.max_completion_tokens=parseInt(mt);
   const rl=g('rate_limit').value.trim();if(rl!=='')out.rate_limit=parseInt(rl);
+  const sp=g('system_prompt');if(sp&&sp.value.trim())out.system_prompt=sp.value.trim();
   return out;
 }
 async function saveAiConfig(){
   const sections={};Object.keys(AICFG).forEach(k=>sections[k]=collectAi(k));
   const r=await (await fetch('api/ai-config',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({sections})})).json();
   const m=$('#aimsg');m.textContent=r.ok?'✅ сохранено':('❌ '+(r.error||'ошибка'));m.style.color=r.ok?'#22c55e':'#fca5a5';
-  if(r.ok)openAiConfig();
+  // Не перерисовываем страницу, чтобы не стирать поля пробного запроса.
+  // Обновляем кеш сохранённых значений (для fallback в пробном запросе).
+  if(r.ok)Object.keys(sections).forEach(k=>{if(!AICFG[k])AICFG[k]={values:{}};AICFG[k].values=Object.assign({},AICFG[k].values,sections[k]);});
 }
 async function aiTest(key){
   const g=(f)=>document.getElementById('ai__'+key+'__'+f);

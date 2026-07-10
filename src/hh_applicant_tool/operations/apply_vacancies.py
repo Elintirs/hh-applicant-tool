@@ -132,8 +132,8 @@ class Operation(BaseOperation):
         parser.add_argument(
             "--system-prompt",
             "--ai-system",
-            help="Системный промпт для AI генерации сопроводительных писем",
-            default="Напиши сопроводительное письмо для отклика на эту вакансию. Не используй placeholder'ы, твой ответ будет отправлен без обработки.",  # noqa: E501
+            help="Системный промпт для AI генерации писем. Если не задан — берётся из config openai_cover_letter.system_prompt, иначе дефолт.",  # noqa: E501
+            default=None,
         )
         parser.add_argument(
             "--message-prompt",
@@ -350,10 +350,15 @@ class Operation(BaseOperation):
         self.sort_point_lng = args.sort_point_lng
         self.top_lat = args.top_lat
         self.total_pages = args.total_pages
+        # Приоритет: CLI-флаг > config openai_cover_letter.system_prompt > дефолт
+        _cover_sp = (
+            args.system_prompt
+            or (tool.config.get("openai_cover_letter") or {}).get("system_prompt")
+            or "Напиши сопроводительное письмо для отклика на эту вакансию. "
+            "Не используй placeholder'ы, твой ответ будет отправлен без обработки."
+        )
         self.cover_letter_ai = (
-            tool.get_cover_letter_ai(args.system_prompt)
-            if args.use_ai
-            else None
+            tool.get_cover_letter_ai(_cover_sp) if args.use_ai else None
         )
         self.ai_filter = args.ai_filter
         self.vacancy_filter_ai = None
