@@ -1,8 +1,25 @@
 from __future__ import annotations
 
+import html
 import random
 import re
 from typing import Any
+
+
+def find_page_marker(text: str, marker: str) -> tuple[str, int]:
+    """Ищет маркер во встроенном в страницу JSON.
+
+    hh.ru отдаёт состояние страницы внутри HTML-атрибута и экранирует кавычки
+    (`&#34;vacancyTests&#34;:` вместо `"vacancyTests":`), поэтому поиск по
+    сырому тексту промахивается. Если маркер не нашёлся — распаковываем
+    HTML-сущности и ищем снова. Возвращает текст, в котором искали, и позицию
+    маркера (-1, если его нет и там).
+    """
+    pos = text.find(marker)
+    if pos == -1:
+        text = html.unescape(text)
+        pos = text.find(marker)
+    return text, pos
 
 
 def shorten(s: str, limit: int = 75, ellipsis: str = "…") -> str:

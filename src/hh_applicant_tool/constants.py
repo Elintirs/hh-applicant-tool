@@ -7,6 +7,7 @@ CONFIG_FILENAME = "config.json"
 LOG_FILENAME = "log.txt"
 DATABASE_FILENAME = "data"
 COOKIES_FILENAME = "cookies.txt"
+AI_TRACE_FILENAME = "ai_trace.jsonl"
 DESKTOP_USER_AGENT = (
     "Mozilla/5.0 (Windows NT 10.0; Win64; x64) "
     "AppleWebKit/537.36 (KHTML, like Gecko) "

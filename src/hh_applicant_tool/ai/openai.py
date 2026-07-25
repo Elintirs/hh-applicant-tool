@@ -7,6 +7,7 @@ from threading import Lock
 
 import requests
 
+from . import trace
 from .base import AIError
 
 logger = logging.getLogger(__package__)
@@ -95,7 +96,44 @@ class ChatOpenAI:
 
         return max(min_interval * (attempt + 1), 1.0)
 
-    def complete(self, message: str) -> str:
+    def complete(
+        self,
+        message: str,
+        *,
+        purpose: str | None = None,
+        context: str | None = None,
+    ) -> str:
+        """Генерация текста. Обёртка вокруг _complete, пишущая журнал.
+
+        purpose/context нужны только для наблюдения в панели: чем именно
+        занята модель (письмо, фильтр, вопрос анкеты) и по какой вакансии.
+        """
+        started = time.monotonic()
+        entry = {
+            "purpose": purpose or "",
+            "context": context or "",
+            "model": self.model,
+            "prompt": message,
+            "system_preview": (self.system_prompt or "")[:80],
+            "temperature": self.temperature,
+        }
+        try:
+            result = self._complete(message)
+        except Exception as ex:
+            trace.record(
+                **entry,
+                error=f"{type(ex).__name__}: {ex}",
+                elapsed_ms=int((time.monotonic() - started) * 1000),
+            )
+            raise
+        trace.record(
+            **entry,
+            response=result,
+            elapsed_ms=int((time.monotonic() - started) * 1000),
+        )
+        return result
+
+    def _complete(self, message: str) -> str:
         """Генерация текста через OpenAI API"""
         messages = []
 

@@ -33,7 +33,7 @@ class Operation(BaseOperation):
 
     # Селекторы
     SEL_LOGIN_INPUT = 'input[data-qa="login-input-username"]'
-    SEL_EXPAND_PASSWORD = 'button[data-qa="expand-login-by_password"]'
+    SEL_EXPAND_PASSWORD = 'button[data-qa="account-login-submit-by-password"]'
     SEL_PASSWORD_INPUT = 'input[data-qa="login-input-password"]'
     SEL_CODE_CONTAINER = 'div[data-qa="account-login-code-input"]'
     SEL_PIN_CODE_INPUT = 'input[data-qa="magritte-pincode-input-field"]'
@@ -152,7 +152,7 @@ class Operation(BaseOperation):
                 )
                 await page.goto(
                     api_client.oauth_client.authorize_url,
-                    timeout=30000,
+                    timeout=60000,
                     wait_until="load",
                 )
 
@@ -212,13 +212,33 @@ class Operation(BaseOperation):
         await page.press(self.SEL_PASSWORD_INPUT, "Enter")
         logger.debug("Форма с паролем отправлена")
 
+    CAPTCHA_ATTEMPTS = 3
+
     async def _onetime_code_login(self, page) -> None:
         logger.info("Вход по одноразовому коду...")
         await page.press(self.SEL_LOGIN_INPUT, "Enter")
-        await self._handle_captcha(page)
-        await page.wait_for_selector(
-            self.SEL_CODE_CONTAINER, timeout=self.selector_timeout
-        )
+
+        # Капчу человек читает медленно, а hh при неверном (или протухшем)
+        # ответе просто перерисовывает её вместо формы кода. Раньше это роняло
+        # весь вход — приходилось начинать заново и ждать новую SMS.
+        for attempt in range(1, self.CAPTCHA_ATTEMPTS + 1):
+            await self._handle_captcha(
+                page, timeout=self.selector_timeout if attempt == 1 else 5000
+            )
+            try:
+                await page.wait_for_selector(
+                    self.SEL_CODE_CONTAINER, timeout=15000
+                )
+                break
+            except Exception:
+                if attempt >= self.CAPTCHA_ATTEMPTS:
+                    await self._dump_page(page)
+                    raise
+                print(
+                    f"[!] Форма ввода кода не появилась — похоже, капча не "
+                    f"принята. Попытка {attempt + 1} из {self.CAPTCHA_ATTEMPTS}.",
+                    flush=True,
+                )
 
         print("Код был отправлен. Проверьте почту или SMS.")
         code = (
@@ -231,19 +251,34 @@ class Operation(BaseOperation):
         await page.press(self.SEL_PIN_CODE_INPUT, "Enter")
         logger.debug("Форма с кодом отправлена")
 
-    async def _handle_captcha(self, page):
+    async def _dump_page(self, page) -> None:
+        """Скриншот всей страницы + видимый текст — чтобы понять, что ответил hh."""
+        try:
+            shot = self._tool.config_path / "auth_debug.png"
+            shot.write_bytes(await page.screenshot(full_page=True))
+            print(f"[!] Скриншот страницы: {shot}", flush=True)
+            print(f"[!] URL: {page.url}", flush=True)
+            text = (await page.inner_text("body")).strip()
+            print("[!] Текст страницы:", flush=True)
+            for line in text.splitlines()[:40]:
+                if line.strip():
+                    print("    " + line.strip(), flush=True)
+        except Exception as ex:  # noqa: BLE001
+            logger.debug("Не удалось снять состояние страницы: %s", ex)
+
+    async def _handle_captcha(self, page, timeout: int | None = None):
         try:
             captcha_element = await page.wait_for_selector(
                 self.SEL_CAPTCHA_IMAGE,
-                timeout=self.selector_timeout,
+                timeout=self.selector_timeout if timeout is None else timeout,
                 state="visible",
             )
         except Exception:
             logger.debug("Капчи нет, продолжаем.")
             return
 
-        import base64
         import os
+        import time
 
         args = self._args
         web_panel = os.environ.get("HH_WEBPANEL")
@@ -255,14 +290,14 @@ class Operation(BaseOperation):
         img_bytes = await captcha_element.screenshot()
         print("\n[!] Требуется ввод капчи.")
         if web_panel:
-            # Веб-панель: отдаём PNG как base64-маркер (с переносом строки),
-            # панель отрисует картинкой. Приоритет выше kitty/sixel — они в
-            # веб-консоли всё равно не рисуются.
-            print(
-                "[[WEBCAPTCHA]]"
-                + base64.b64encode(img_bytes).decode("ascii"),
-                flush=True,
-            )
+            # Веб-панель: PNG кладём файлом рядом с конфигом, а в stdout пишем
+            # только короткий маркер — панель заберёт картинку через /api/captcha.
+            # Через stdout гнать base64 нельзя: pipe рвёт строки длиннее 64 КиБ
+            # (PYTHONUNBUFFERED=1 => короткая запись без дописывания хвоста).
+            # Приоритет выше kitty/sixel — они в веб-консоли всё равно не рисуются.
+            captcha_file = self._tool.config_path / "captcha.png"
+            captcha_file.write_bytes(img_bytes)
+            print(f"[[WEBCAPTCHA]]{int(time.time() * 1000)}", flush=True)
         elif args.use_kitty:
             print_kitty_image(img_bytes)
         elif args.use_sixel:

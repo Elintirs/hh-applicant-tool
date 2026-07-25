@@ -21,6 +21,7 @@ import urllib3
 
 from . import ai, api, utils
 from .constants import (
+    AI_TRACE_FILENAME,
     CONFIG_DIR,
     CONFIG_FILENAME,
     COOKIES_FILENAME,
@@ -347,6 +348,9 @@ class HHApplicantTool(MegaTool):
         
         config_section = config_sections[purpose]
         c = self.config.get(config_section, {})
+
+        # Журнал диалога с моделью для страницы «Что делает модель» в панели
+        ai.trace.configure(self.config_path / AI_TRACE_FILENAME)
         
         api_key = c.get("api_key")
         if not api_key:
@@ -388,7 +392,7 @@ class HHApplicantTool(MegaTool):
     # TODO: вынести в миксин какой
     def _extract_xsrf_token(self, content: str) -> str:
         xsrf_token_marker = ',"xsrfToken":"'
-        s1 = content.find(xsrf_token_marker)
+        content, s1 = utils.string.find_page_marker(content, xsrf_token_marker)
         if s1 == -1:
             raise ValueError("xsrf token not found")
         s1 += len(xsrf_token_marker)

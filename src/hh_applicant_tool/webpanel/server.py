@@ -357,6 +357,12 @@ class _Handler(BaseHTTPRequestHandler):
         ("openai_captcha", "Капча (нужна vision-модель)"),
     ]
 
+    # Секции без своего провайдера: модель берётся из openai_cover_letter,
+    # здесь настраивается только поведение (промпт и факты о кандидате).
+    PROMPT_SECTIONS = [
+        ("vacancy_test", "Анкеты и тесты при отклике"),
+    ]
+
     def log_message(self, *a):  # тише
         pass
 
@@ -402,6 +408,12 @@ class _Handler(BaseHTTPRequestHandler):
             self._json({"running": self.runner.is_running()})
         elif path == "/api/stream":
             self._stream()
+        elif path == "/api/ai-trace":
+            self._ai_trace()
+        elif path == "/api/captcha":
+            self._png("captcha.png")
+        elif path == "/api/authshot":
+            self._png("auth_debug.png")
         elif path == "/favicon.ico":
             self.send_response(204)
             self.end_headers()
@@ -422,6 +434,12 @@ class _Handler(BaseHTTPRequestHandler):
         elif path == "/api/stdin":
             line = self._body().get("line", "")
             self._json({"ok": self.runner.send_stdin(str(line))})
+        elif path == "/api/ai-trace/clear":
+            from .. import ai as ai_mod
+
+            ai_mod.trace.configure(self.config_file.parent / "ai_trace.jsonl")
+            ai_mod.trace.clear()
+            self._json({"ok": True})
         elif path == "/api/stop":
             self._json({"ok": self.runner.stop()})
         elif path == "/api/config":
@@ -509,6 +527,9 @@ class _Handler(BaseHTTPRequestHandler):
         self.send_response(200)
         self.send_header("Content-Type", "text/html; charset=utf-8")
         self.send_header("Content-Length", str(len(body)))
+        # HTML и JS зашиты в один ответ: без no-store браузер держит старый JS
+        # после обновления панели и ломается на новых форматах событий.
+        self.send_header("Cache-Control", "no-store, must-revalidate")
         self.end_headers()
         self.wfile.write(body)
 
@@ -526,16 +547,26 @@ class _Handler(BaseHTTPRequestHandler):
 
     def _ai_sections(self) -> dict:
         cfg = self._load_config_dict()
-        return {
+        out = {
             key: {
+                "kind": "provider",
                 "label": label,
                 "values": cfg.get(key) or {},
             }
             for key, label in self.AI_SECTIONS
         }
+        for key, label in self.PROMPT_SECTIONS:
+            out[key] = {
+                "kind": "prompt",
+                "label": label,
+                "values": cfg.get(key) or {},
+            }
+        return out
 
     def _save_ai_sections(self, sections: dict) -> None:
-        valid = {k for k, _ in self.AI_SECTIONS}
+        valid = {k for k, _ in self.AI_SECTIONS} | {
+            k for k, _ in self.PROMPT_SECTIONS
+        }
         cfg = self._load_config_dict()
         for key, values in sections.items():
             if key not in valid or not isinstance(values, dict):
@@ -546,6 +577,13 @@ class _Handler(BaseHTTPRequestHandler):
             # пустой api_key в форме = не менять текущий
             if not values.get("api_key") and existing.get("api_key"):
                 merged["api_key"] = existing["api_key"]
+            # То же для системного промпта: он длинный, и потерять его из-за
+            # случайного сохранения непрогрузившейся формы слишком обидно.
+            # Очистить его можно в полном редакторе config.json.
+            if not values.get("system_prompt") and existing.get(
+                "system_prompt"
+            ):
+                merged["system_prompt"] = existing["system_prompt"]
             merged = {
                 k: v for k, v in merged.items() if v not in (None, "")
             }
@@ -675,6 +713,40 @@ class _Handler(BaseHTTPRequestHandler):
         except Exception as e:  # noqa: BLE001
             self._json({"ok": False, "error": str(e)})
 
+    def _ai_trace(self):
+        """Последние обращения к модели (страница «Что делает модель»)."""
+        from urllib.parse import parse_qs, urlsplit
+
+        q = parse_qs(urlsplit(self.path).query)
+        try:
+            limit = max(1, min(500, int(q.get("limit", ["150"])[0])))
+        except ValueError:
+            limit = 150
+
+        # Пишет журнал подпроцесс, поэтому читаем файл напрямую, а не через
+        # ai.trace.configure() этого процесса.
+        from .. import ai as ai_mod
+
+        ai_mod.trace.configure(self.config_file.parent / "ai_trace.jsonl")
+        items = ai_mod.trace.read_last(limit)
+
+        purposes = sorted({str(i.get("purpose") or "—") for i in items})
+        self._json({"items": items, "purposes": purposes})
+
+    def _png(self, name: str):
+        """Отдаёт PNG, сохранённый операцией authorize (капча, дамп страницы)."""
+        f = self.config_file.parent / name
+        if not f.exists():
+            self.send_error(404)
+            return
+        data = f.read_bytes()
+        self.send_response(200)
+        self.send_header("Content-Type", "image/png")
+        self.send_header("Content-Length", str(len(data)))
+        self.send_header("Cache-Control", "no-store")
+        self.end_headers()
+        self.wfile.write(data)
+
     def _stream(self):
         q = self.runner.subscribe()
         self.send_response(200)
@@ -801,6 +873,7 @@ PAGE = r"""<!DOCTYPE html>
   .sval{font-size:25px;font-weight:700;line-height:1.1}
   .slbl{color:var(--muted);font-size:12px;margin-top:3px}
   .sh{font-size:13px;color:var(--muted);margin:18px 0 8px;text-transform:uppercase;letter-spacing:.04em}
+  .trpre{white-space:pre-wrap;word-break:break-word;background:var(--bg);border:1px solid var(--line);border-radius:8px;padding:10px;margin:0 0 6px;font-size:12.5px;line-height:1.5;max-height:340px;overflow:auto}
   .chart{display:flex;align-items:flex-end;gap:2px;height:120px;background:var(--panel2);border:1px solid var(--line);border-radius:8px;padding:8px}
   .barcol{flex:1;height:100%;display:flex;align-items:flex-end}
   .barstack{width:100%;display:flex;flex-direction:column;justify-content:flex-end;height:100%}
@@ -855,6 +928,7 @@ function renderNav(){
   const sep=(t)=>{const d=document.createElement('div');d.className='navsep';d.textContent=t;return d;};
   nav.appendChild(sep('Обзор'));
   nav.appendChild(mk('📊 Статистика',()=>openStats()));
+  nav.appendChild(mk('🧠 Что делает модель',()=>openAiTrace()));
   nav.appendChild(sep('Настройки'));
   nav.appendChild(mk('⚙ Конфиг (config.json)',()=>openConfig()));
   nav.appendChild(mk('🤖 AI-провайдеры',()=>openAiConfig()));
@@ -962,7 +1036,7 @@ async function openConfig(){
   c.innerHTML=`<h2>Конфиг (config.json)</h2><p class="hint">Полный JSON конфигурации — любые ключи. Здесь же токены (⚠ не показывайте экран посторонним).</p>
   <textarea id="cfg" rows="22" spellcheck="false"></textarea>
   <div class="row"><button onclick="saveConfig()">💾 Сохранить</button><button class="sec" onclick="openConfig()">Перечитать</button><span id="cfgmsg" class="fh"></span></div>`;
-  $('#cfg').value=data.text;setActive(1);
+  $('#cfg').value=data.text;setActive(2);
 }
 async function saveConfig(){
   const text=$('#cfg').value;
@@ -983,10 +1057,11 @@ $('#stdin')&&document.addEventListener('keydown',e=>{if(e.target&&e.target.id===
 function setRunning(on,cmd){$('#dot').classList.toggle('run',on);$('#status').textContent=on?'выполняется':'простаивает';$('#btn-stop').disabled=!on;if(cmd!==undefined)$('#curcmd').textContent=cmd||'';}
 function clearLog(){$('#log').innerHTML='';}
 function addLine(cls,text){const l=$('#log');const d=document.createElement('div');if(cls)d.className=cls;d.textContent=text;l.appendChild(d);while(l.children.length>4000)l.removeChild(l.firstChild);l.scrollTop=l.scrollHeight;}
-function showCaptcha(b64){
+function showCaptcha(tag){
   const l=$('#log');const wrap=document.createElement('div');
   const cap=document.createElement('div');cap.className='err';cap.textContent='🔐 Капча — введите текст в поле ввода снизу и нажмите Enter:';
-  const img=document.createElement('img');img.src='data:image/png;base64,'+b64.trim();img.alt='captcha';
+  const img=document.createElement('img');img.src='api/captcha?t='+encodeURIComponent(tag.trim()||Date.now());img.alt='captcha';
+  img.onerror=()=>{cap.textContent='🔐 Капча не загрузилась — обновите страницу или откройте api/captcha вручную';};
   img.style.cssText='max-height:90px;background:#fff;padding:6px;border-radius:6px;margin:6px 0;display:block';
   wrap.appendChild(cap);wrap.appendChild(img);l.appendChild(wrap);l.scrollTop=l.scrollHeight;
   const s=$('#stdin');if(s){s.placeholder='введите текст с капчи и Enter';s.focus();}
@@ -1019,6 +1094,7 @@ async function openAiConfig(){
   const box=$('#aisecs');
   Object.keys(AICFG).forEach(key=>box.insertAdjacentHTML('beforeend',aiSectionHtml(key,AICFG[key])));
   Object.keys(AICFG).forEach(key=>{const v=AICFG[key].values||{};
+    if(AICFG[key].kind==='prompt'){setVal(key,'system_prompt',v.system_prompt);setVal(key,'salary',v.salary);setVal(key,'facts',v.facts);return;}
     setVal(key,'base_url',v.base_url);setVal(key,'model',v.model);
     setVal(key,'temperature',v.temperature);setVal(key,'max_completion_tokens',v.max_completion_tokens);setVal(key,'rate_limit',v.rate_limit);setVal(key,'system_prompt',v.system_prompt);
     const ak=document.getElementById('ai__'+key+'__api_key');if(ak&&v.api_key)ak.placeholder='● установлен — пусто = не менять';
@@ -1028,6 +1104,15 @@ async function openAiConfig(){
 function setVal(key,f,v){const el=document.getElementById('ai__'+key+'__'+f);if(el&&v!=null&&v!=='')el.value=v;}
 function aiSectionHtml(key,sec){
   const p='ai__'+key+'__';
+  if(sec.kind==='prompt')return `<details open><summary><b>${key}</b> — ${esc(sec.label||'')}</summary><div class="inner">
+    <p class="hint">Ответы на вопросы анкет, которые работодатель прикладывает к вакансии. Модель, base_url и ключ берутся из <code>openai_cover_letter</code> — здесь только поведение.</p>
+    <div class="field"><label>Системный промпт для анкет</label><textarea id="${p}system_prompt" rows="12" placeholder="Пусто = используется промпт из openai_cover_letter."></textarea><div class="fh">Кто ты, какой у тебя реальный стек и проекты, как отвечать на пробелы в опыте. Факты берутся только отсюда.</div></div>
+    <div class="field"><label>Зарплатные ожидания</label><input type="text" id="${p}salary" placeholder="от 250 000 ₽ на руки"><div class="fh">Подставляется ДОСЛОВНО, без участия модели — одинаково во всех анкетах. Пусто = обтекаемый ответ «готов обсудить вилку».</div></div>
+    <div class="field"><label>Факты обо мне (чего нет в резюме)</label><textarea id="${p}facts" rows="4" placeholder="Локация и готовность к офису. Английский. Образование. Возраст. Мессенджер для связи."></textarea><div class="fh">Самые частые вопросы анкет. Без них модель угадывает — и уверенно выдумывает.</div></div>
+    <div class="fh" style="border-top:1px solid var(--line);margin:12px 0 6px;padding-top:8px">🧪 Пробный вопрос анкеты — шлётся через провайдер openai_cover_letter, НЕ сохраняется</div>
+    <div class="field"><label>вопрос</label><textarea id="${p}message" rows="2">Есть ли у вас опыт с Kubernetes в продакшене? Опишите подробно.</textarea></div>
+    <div class="row"><button class="sec" onclick="aiTest('${key}')">🧪 Отправить пробный</button><span id="${p}result" class="fh"></span></div>
+  </div></details>`;
   return `<details open><summary><b>${key}</b> — ${esc(sec.label||'')}</summary><div class="inner">
     <div class="grid">
       <div class="field"><label>API ключ</label><input type="password" id="${p}api_key" autocomplete="new-password" placeholder="ключ провайдера (для LM Studio/Ollama — любое)"></div>
@@ -1047,6 +1132,11 @@ function aiSectionHtml(key,sec){
 function collectAi(key){
   const g=(f)=>document.getElementById('ai__'+key+'__'+f);
   const out={};
+  if(AICFG[key]&&AICFG[key].kind==='prompt'){
+    // Пустое поле = стереть значение из конфига (сервер отбрасывает пустые)
+    ['system_prompt','salary','facts'].forEach(f=>{const el=g(f);out[f]=el?el.value.trim():'';});
+    return out;
+  }
   const ak=g('api_key').value.trim();if(ak)out.api_key=ak;
   ['base_url','model'].forEach(f=>{const v=g(f).value.trim();if(v)out[f]=v;});
   const t=g('temperature').value.trim();if(t!=='')out.temperature=Number(t);
@@ -1066,7 +1156,25 @@ async function saveAiConfig(){
 async function aiTest(key){
   const g=(f)=>document.getElementById('ai__'+key+'__'+f);
   const saved=(AICFG[key]&&AICFG[key].values)||{};
-  const body={
+  let body;
+  if(AICFG[key]&&AICFG[key].kind==='prompt'){
+    // Своего провайдера у секции нет — берём его из openai_cover_letter,
+    // как это делает сама утилита при решении анкет.
+    const pk='openai_cover_letter';
+    const pg=(f)=>document.getElementById('ai__'+pk+'__'+f);
+    const ps=(AICFG[pk]&&AICFG[pk].values)||{};
+    body={
+      api_key:(pg('api_key')?pg('api_key').value.trim():'')||ps.api_key||'',
+      base_url:(pg('base_url')?pg('base_url').value.trim():'')||ps.base_url||'',
+      model:(pg('model')?pg('model').value.trim():'')||ps.model||'',
+      temperature:(pg('temperature')?pg('temperature').value.trim():'')||ps.temperature,
+      max_completion_tokens:(pg('max_completion_tokens')?pg('max_completion_tokens').value.trim():'')||ps.max_completion_tokens,
+      system:g('system_prompt').value.trim()||saved.system_prompt||'',
+      message:g('message').value,
+    };
+    return aiTestSend(key,body);
+  }
+  body={
     api_key:g('api_key').value.trim()||saved.api_key||'',
     base_url:g('base_url').value.trim()||saved.base_url||'',
     model:g('model').value.trim()||saved.model||'',
@@ -1074,7 +1182,11 @@ async function aiTest(key){
     max_completion_tokens:g('max_completion_tokens').value.trim()||saved.max_completion_tokens,
     system:g('system').value,message:g('message').value,
   };
-  const res=g('result');res.style.color='';res.textContent='⏳ запрос...';
+  return aiTestSend(key,body);
+}
+async function aiTestSend(key,body){
+  const res=document.getElementById('ai__'+key+'__result');
+  res.style.color='';res.textContent='⏳ запрос...';
   try{
     const r=await (await fetch('api/ai-test',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(body)})).json();
     if(r.ok){res.style.color='#22c55e';res.textContent=`✅ ${r.elapsed_ms} мс — ${r.response}`;}
@@ -1199,6 +1311,52 @@ function barList(obj,labels){
 async function syncStats(){
   showToast('Синхронизация запущена — прогресс в консоли снизу','info');
   await run(['refresh-negotiations']);  // по завершении статистика обновится сама
+}
+
+// ---- Что делает модель ---- #
+let TRACE={items:[],purposes:[]}, TRFILTER='', TRAUTO=false, TRTIMER=null;
+async function openAiTrace(){
+  CURRENT={type:'trace'};
+  try{TRACE=await (await fetch('api/ai-trace?limit=200')).json();}
+  catch(e){$('#content').innerHTML='<h2>Что делает модель</h2><p class="hint">Ошибка загрузки журнала</p>';return;}
+  renderTrace();
+}
+function renderTrace(){
+  const items=TRACE.items||[];
+  const shown=TRFILTER?items.filter(i=>(i.purpose||'')===TRFILTER):items;
+  const opts=['<option value="">все задачи</option>'].concat((TRACE.purposes||[]).map(p=>`<option ${p===TRFILTER?'selected':''}>${esc(p)}</option>`)).join('');
+  let h=`<div style="display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:10px"><h2 style="margin:0">Что делает модель</h2>
+    <div class="row" style="margin:0">
+      <select onchange="TRFILTER=this.value;renderTrace()" style="max-width:260px">${opts}</select>
+      <label class="chk" style="margin:0 4px"><input type="checkbox" ${TRAUTO?'checked':''} onchange="trAuto(this.checked)"> <span>автообновление</span></label>
+      <button class="sec" onclick="openAiTrace()">Обновить</button>
+      <button class="danger" onclick="trClear()">Очистить журнал</button>
+    </div></div>`;
+  h+='<p class="hint">Каждое обращение к модели: что ей отправили и что она ответила. Пишется во время работы команд — открывайте параллельно с рассылкой.</p>';
+  if(!shown.length){h+='<p class="hint">Записей пока нет. Запустите команду с <code>--use-ai</code>, и здесь появится диалог с моделью.</p>';}
+  shown.forEach((it,i)=>h+=traceCard(it,i));
+  $('#content').innerHTML=h;setActive(1);
+}
+function traceCard(it,i){
+  const t=it.ts?new Date(it.ts*1000).toLocaleString('ru-RU'):'';
+  const ms=it.elapsed_ms!=null?(it.elapsed_ms+' мс'):'';
+  const bad=!!it.error;
+  const head=`${esc(it.purpose||'—')}${it.context?(' · '+esc(it.context)):''}`;
+  const body=bad?`<div class="err">${esc(it.error)}</div>`:`<pre class="trpre">${esc(it.response||'(пусто)')}</pre>`;
+  return `<details ${i<3?'open':''}><summary>${bad?'❌ ':'🧠 '}<b>${head}</b> <span class="fh">— ${esc(t)} · ${esc(ms)}</span></summary><div class="inner">
+    <div class="fh">модель: ${esc(it.model||'?')} · temperature: ${esc(String(it.temperature??''))} · системный промпт: ${esc((it.system_preview||'').slice(0,60))}…</div>
+    <div class="sh" style="margin-top:8px">Запрос</div><pre class="trpre">${esc(it.prompt||'')}</pre>
+    <div class="sh">Ответ</div>${body}
+  </div></details>`;
+}
+function trAuto(on){
+  TRAUTO=on;
+  if(TRTIMER){clearInterval(TRTIMER);TRTIMER=null;}
+  if(on)TRTIMER=setInterval(()=>{if(CURRENT&&CURRENT.type==='trace')openAiTrace();else trAuto(false);},5000);
+}
+async function trClear(){
+  await fetch('api/ai-trace/clear',{method:'POST'});
+  openAiTrace();
 }
 
 // ---- Выпадающий список резюме ---- #

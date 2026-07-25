@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import argparse
+import html
 import logging
 import re
 from typing import TYPE_CHECKING
@@ -30,8 +31,19 @@ class Operation(BaseOperation):
 
     def run(self, tool: HHApplicantTool, args: BaseNamespace) -> None:
         r = tool.session.get("https://hh.ru")
+        # hh экранирует встроенный JSON (&#34; вместо "), поэтому ищем
+        # состояние сессии по распакованному тексту страницы.
+        text = html.unescape(r.text)
 
-        if m := re.search(r'^\s+login: "([^"]+)', r.text, re.MULTILINE):
+        if m := re.search(r'^\s+login: "([^"]+)', text, re.MULTILINE):
             print("Вы вошли как", m.group(1))
+        elif m := re.search(r'"userType":"(\w+)"', text):
+            user_type = m.group(1)
+            if user_type == "anonymous":
+                logger.warning("Вы не авторизованы!")
+            else:
+                print(f"Вы авторизованы (userType: {user_type})")
         else:
-            logger.warning("Вы не авторизованы!")
+            logger.warning(
+                "Не удалось определить состояние сессии — разметка hh.ru изменилась?"
+            )

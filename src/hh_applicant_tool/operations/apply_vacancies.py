@@ -27,7 +27,9 @@ from ..utils.datatypes import VacancyTestsData
 from ..utils.json import JSONDecoder
 from ..utils.string import (
     bool2str,
+    find_page_marker,
     rand_text,
+    shorten,
     strip_tags,
     unescape_string,
 )
@@ -491,7 +493,11 @@ class Operation(BaseOperation):
 
         for attempt in range(MAX_RETRIES):
             try:
-                response = self.vacancy_filter_ai.complete(prompt).strip()
+                response = self.vacancy_filter_ai.complete(
+                    prompt,
+                    purpose=f"Фильтр вакансий{log_suffix and ' ' + log_suffix}",
+                    context=vacancy_name,
+                ).strip()
 
                 if logger.isEnabledFor(logging.DEBUG):
                     logger.debug(
@@ -992,7 +998,11 @@ class Operation(BaseOperation):
                             + message_placeholders["resume_title"]
                         )
                         logger.debug("prompt: %s", msg)
-                        letter = self.cover_letter_ai.complete(msg)
+                        letter = self.cover_letter_ai.complete(
+                            msg,
+                            purpose="Сопроводительное письмо",
+                            context=message_placeholders["vacancy_name"],
+                        )
                     else:
                         src = self._select_letter_template(vacancy)
                         if src is None:
@@ -1018,6 +1028,7 @@ class Operation(BaseOperation):
                                 vacancy_id=vacancy["id"],
                                 resume_hash=resume["id"],
                                 letter=letter,
+                                vacancy_name=vacancy.get("name") or "",
                             )
                             if result.get("success") == "true":
                                 applied_count += 1
@@ -1160,19 +1171,213 @@ class Operation(BaseOperation):
 
     json_decoder = JSONDecoder()
 
-    def _get_vacancy_tests(self, response_url: str) -> VacancyTestsData:
-        """Парсит тесты"""
+    # ---- решение анкет работодателя ---------------------------------- #
+
+    @staticmethod
+    def _clean_test_text(s: str) -> str:
+        """Вопросы и варианты приходят с HTML-тегами и сущностями."""
+        return re.sub(r"\s+", " ", strip_tags(html.unescape(s or ""))).strip()
+
+    # Зарплата — самый частый открытый вопрос анкет, и именно на нём модель
+    # выдумывает суммы (видели и «1 500 000 ₽ на руки»). Отвечаем из конфига.
+    SALARY_RE = re.compile(
+        r"зарплат|зарплатн|\bз/?п\b|оклад|желаемый доход|ваш доход|"
+        r"финансов\w+ ожидан|вознагражден|ожидания по деньгам|"
+        r"сколько .{0,20}(хотите|рассчитываете) (получать|зарабатывать)",
+        re.I,
+    )
+    SALARY_FALLBACK = (
+        "Ориентируюсь на рыночный уровень для senior fullstack-разработчика, "
+        "готов обсудить конкретную вилку на созвоне."
+    )
+
+    def _test_config(self) -> dict[str, Any]:
+        """Секция `vacancy_test` из config.json."""
+        c = self.tool.config.get("vacancy_test")
+        return c if isinstance(c, dict) else {}
+
+    def _test_ai(self):
+        """AI для анкет. Тон в тестах отличается от сопроводительных писем,
+        поэтому допускаем отдельный системный промпт `vacancy_test.system_prompt`.
+        Если он не задан — используем клиент сопроводительных писем.
+        """
+        if not self.cover_letter_ai:
+            return None
+        if getattr(self, "_test_ai_client", None) is None:
+            sp = str(self._test_config().get("system_prompt") or "").strip()
+            self._test_ai_client = (
+                self.tool.get_cover_letter_ai(sp) if sp else self.cover_letter_ai
+            )
+        return self._test_ai_client
+
+    def _test_context(self) -> str:
+        """Факты о кандидате, которых нет в резюме: возраст, локация, контакты.
+
+        Задаётся как `vacancy_test.facts` в config.json. Без них модель
+        вынуждена угадывать — и уверенно выдумывает образование, готовность
+        к офису и управленческий опыт.
+        """
+        return str(self._test_config().get("facts") or "").strip()
+
+    def _fallback_solution_id(self, solutions: list[dict]) -> str:
+        """Ответ без AI: «да», иначе середина списка."""
+        yes = next(
+            (
+                s
+                for s in solutions
+                if self._clean_test_text(s["text"]).lower().startswith("да")
+            ),
+            None,
+        )
+        # По статистике правильный ответ чаще находится посередине
+        return str((yes or solutions[len(solutions) // 2])["id"])
+
+    def _answer_choice(
+        self, question: str, solutions: list[dict], vacancy_name: str = ""
+    ) -> str:
+        """Выбирает id варианта. Гарантированно возвращает существующий id."""
+        allowed = [str(s["id"]) for s in solutions]
+        ai = self._test_ai()
+        if not ai:
+            return self._fallback_solution_id(solutions)
+
+        options = "\n".join(
+            f"{s['id']} — {self._clean_test_text(s['text'])}" for s in solutions
+        )
+        context = self._test_context()
+        prompt = (
+            f"Анкета работодателя{f' по вакансии «{vacancy_name}»' if vacancy_name else ''}.\n"
+            f"Вопрос: {self._clean_test_text(question)}\n"
+            f"Варианты ответа:\n{options}\n"
+            + (f"\nДополнительно обо мне:\n{context}\n" if context else "")
+            + "\nЭто вопрос обо мне как о кандидате, а не проверка знаний. "
+            "Выбери ОДИН вариант, который правдиво описывает мой реальный "
+            "опыт и предпочтения. Точного совпадения может не быть — тогда "
+            "бери ближайший по смыслу, не преувеличивая опыт.\n"
+            "Ответь ТОЛЬКО числовым идентификатором варианта из списка выше. "
+            "Без слов, без пояснений, без знаков препинания."
+        )
+
+        for attempt in range(2):
+            try:
+                raw = (
+                    ai.complete(
+                        prompt,
+                        purpose="Анкета: выбор варианта",
+                        context=vacancy_name,
+                    )
+                    or ""
+                ).strip()
+            except AIError as ex:
+                logger.warning("AI не ответил на вопрос анкеты: %s", ex)
+                break
+            # Берём первое число, которое действительно является id варианта:
+            # модель любит писать «Вариант 2: 372949404», и наивный поиск
+            # первого числа возвращал бы «2» — несуществующий id.
+            for num in re.findall(r"\d+", raw):
+                if num in allowed:
+                    return num
+            logger.warning(
+                "AI вернул ответ без валидного id (попытка %d): %r",
+                attempt + 1,
+                shorten(raw, 200),
+            )
+
+        fallback = self._fallback_solution_id(solutions)
+        logger.warning("Отвечаем на вопрос анкеты по умолчанию: %s", fallback)
+        return fallback
+
+    def _answer_free_text(self, question: str, vacancy_name: str = "") -> str:
+        """Ответ на открытый вопрос анкеты."""
+        question_clean = self._clean_test_text(question)
+
+        if "://" in question_clean:
+            return rand_text(
+                "{{Простите|Извините}, но я не перехожу по {внешним|сторонним} ссылкам, так как {опасаюсь взлома|не хочу {быть взломанным|подхватить вирус|чтобы у меня {со|с банковского} счета украли деньги}}.|У меня нет времени на заполнение анкет и гуглодоков}"
+            )
+
+        if self.SALARY_RE.search(question_clean):
+            # Никакого AI: суммы должны быть одинаковыми во всех анкетах,
+            # а без заданной вилки модель уверенно выдумывает числа.
+            salary = str(self._test_config().get("salary") or "").strip()
+            if salary:
+                logger.debug("Зарплатный вопрос, отвечаем из конфига")
+                return salary
+            logger.warning(
+                "Зарплатный вопрос, но vacancy_test.salary не задан — "
+                "отвечаем обтекаемо. Укажите вилку в config.json."
+            )
+            return self.SALARY_FALLBACK
+
+        ai = self._test_ai()
+        if not ai:
+            # Анкеты любят вопросы вида «готовы ли вы…», где ожидается «да»
+            return "Да"
+
+        context = self._test_context()
+        prompt = (
+            f"Анкета работодателя{f' по вакансии «{vacancy_name}»' if vacancy_name else ''}.\n"
+            f"Вопрос: {question_clean}\n"
+            + (f"\nПроверенные факты обо мне:\n{context}\n" if context else "")
+            + "\nОтветь от моего лица кратко и по существу: 1-3 предложения. "
+            "Это поле анкеты, а не сопроводительное письмо — не здоровайся, "
+            "не подписывайся, не пересказывай резюме целиком.\n"
+            "Если релевантный опыт в моём профиле ЕСТЬ — расскажи о нём "
+            "конкретно, называя реальные проекты и технологии оттуда. "
+            "Если его там НЕТ — честно напиши, что такого опыта не было, "
+            "вместо правдоподобной выдумки.\n"
+            "СТРОГО ЗАПРЕЩЕНО придумывать то, чего нет в профиле: названия "
+            "библиотек и инструментов, числовые метрики, размеры команд, "
+            "суммы и сроки. Цифры бери только из профиля дословно. "
+            "Лучше короткий честный ответ, чем развёрнутый выдуманный.\n"
+            "Верни только текст ответа."
+        )
+        try:
+            answer = (
+                ai.complete(
+                    prompt,
+                    purpose="Анкета: открытый вопрос",
+                    context=vacancy_name,
+                )
+                or ""
+            ).strip()
+        except AIError as ex:
+            logger.warning("AI не ответил на открытый вопрос анкеты: %s", ex)
+            return "Да"
+        return answer or "Да"
+
+    def _cookie_xsrf(self) -> str | None:
+        for c in self.tool.session.cookies:
+            if c.name == "_xsrf":
+                return c.value
+        return None
+
+    def _get_vacancy_tests(
+        self, response_url: str
+    ) -> tuple[VacancyTestsData, str | None]:
+        """Парсит тесты и XSRF-токен с одной и той же страницы.
+
+        Токен обязательно брать отсюда: на https://hh.ru/ в разметке лежит
+        другой, каждый раз новый токен, не совпадающий с кукой `_xsrf`, и
+        отправка теста с ним получает 403.
+        """
         r = self.tool.session.get(response_url)
         tests_marker = ',"vacancyTests":'
 
-        if -1 == (tests_start_pos := r.text.find(tests_marker)):
+        text, tests_start_pos = find_page_marker(r.text, tests_marker)
+        if tests_start_pos == -1:
             raise ValueError("tests not found.")
 
         try:
+            xsrf = self.tool._extract_xsrf_token(text)
+        except ValueError:
+            xsrf = None
+
+        try:
             res, _ = self.json_decoder.raw_decode(
-                r.text, tests_start_pos + len(tests_marker)
+                text, tests_start_pos + len(tests_marker)
             )
-            return res
+            return res, xsrf
         except json.JSONDecodeError as ex:
             raise ValueError("Не могу распарсить vacancyTests.") from ex
 
@@ -1181,12 +1386,14 @@ class Operation(BaseOperation):
         vacancy_id: str | int,
         resume_hash: str,
         letter: str = "",
+        vacancy_name: str = "",
     ) -> dict[str, Any]:
         """Загружает тест, ждет паузу и отправляет отклик."""
         response_url = f"https://hh.ru/applicant/vacancy_response?vacancyId={vacancy_id}&startedWithQuestion=false&hhtmFrom=vacancy"
 
         # Загружаем данные теста и токен
-        tests_data = self._get_vacancy_tests(response_url)
+        tests_data, page_xsrf = self._get_vacancy_tests(response_url)
+        xsrf = page_xsrf or self._cookie_xsrf() or self.tool.xsrf_token
 
         try:
             test_data = tests_data[str(vacancy_id)]
@@ -1196,7 +1403,7 @@ class Operation(BaseOperation):
         logger.debug(f"{test_data = }")
 
         payload: dict[str, Any] = {
-            "_xsrf": self.tool.xsrf_token,
+            "_xsrf": xsrf,
             "uidPk": test_data["uidPk"],
             "guid": test_data["guid"],
             "startTime": test_data["startTime"],
@@ -1218,57 +1425,16 @@ class Operation(BaseOperation):
             question = (task.get("description") or "").strip()
 
             if solutions:
-                if self.cover_letter_ai:
-                    options = "\n".join(
-                        [
-                            f"{s['id']}: {strip_tags(s['text'])}"
-                            for s in solutions
-                        ]
-                    )
-                    prompt = (
-                        f"Вопрос: {question}\n"
-                        f"Варианты:\n{options}\n"
-                        f"Выбери ID правильного ответа. Пришли только ID."
-                    )
-                    ai_answer = self.cover_letter_ai.complete(prompt).strip()
-                    # Ищем ID в ответе AI на случай лишнего текста
-                    match = re.search(r"\d+", ai_answer)
-                    selected_id = (
-                        match.group(0) if match else solutions[0]["id"]
-                    )
-                    payload[field_name] = selected_id
-                else:
-                    yes_solution = next(
-                        filter(lambda x: x["text"].lower() == "да", solutions),
-                        None,
-                    )
-
-                    payload[field_name] = (
-                        yes_solution["id"]
-                        if yes_solution
-                        # По статистике правильный ответ в большинстве случаев
-                        # находится посередине
-                        else solutions[len(solutions) // 2]["id"]
-                    )
+                # Флаг multiple у hh не означает мультивыбор: такие вопросы
+                # на практике односоставные («Да/Нет», «3 года / нет опыта»),
+                # поэтому отправляем ровно один id.
+                payload[field_name] = self._answer_choice(
+                    question, solutions, vacancy_name
+                )
             else:
-                # Рандомные эмоджи
-                # payload[f"{field_name}_text"] = "".join(
-                #     chr(random.randint(0x1F300, 0x1F64F))
-                #     for _ in range(random.randint(3, 15))
-                # )
-
-                if "://" in question:
-                    answer = rand_text(
-                        "{{Простите|Извините}, но я не перехожу по {внешним|сторонним} ссылкам, так как {опасаюсь взлома|не хочу {быть взломанным|подхватить вирус|чтобы у меня {со|с банковского} счета украли деньги}}.|У меня нет времени на заполнение анкет и гуглодоков}"
-                    )
-                elif self.cover_letter_ai:
-                    prompt = f"Дай краткий и профессиональный ответ на вопрос: {question}"
-                    answer = self.cover_letter_ai.complete(prompt)
-                # Тупоеблые любят вопросы с ответами да/нет, где ответ да является правильным в большинстве случаев.
-                else:
-                    answer = "Да"
-
-                payload[f"{field_name}_text"] = answer
+                payload[f"{field_name}_text"] = self._answer_free_text(
+                    question, vacancy_name
+                )
 
         logger.debug(f"{payload = }")
 
@@ -1285,7 +1451,7 @@ class Operation(BaseOperation):
                 "X-Hhtmfrom": "vacancy",
                 "X-Hhtmsource": "vacancy_response",
                 "X-Requested-With": "XMLHttpRequest",
-                "X-Xsrftoken": self.tool.xsrf_token,
+                "X-Xsrftoken": xsrf,
             },
         )
 
@@ -1296,8 +1462,20 @@ class Operation(BaseOperation):
             response.status_code,
         )
 
-        data = response.json()
-        # logger.debug(data)
+        try:
+            data = response.json()
+        except ValueError:
+            data = {}
+
+        if data.get("success") != "true" and not data.get("error"):
+            # Раньше это всплывало наверх как «ошибка ... - None»: причина
+            # терялась целиком. Логируем код и тело ответа.
+            logger.error(
+                "hh отклонил отправку теста: HTTP %d, ответ: %s",
+                response.status_code,
+                shorten(response.text, 300),
+            )
+            data.setdefault("error", f"HTTP {response.status_code}")
 
         return data
 

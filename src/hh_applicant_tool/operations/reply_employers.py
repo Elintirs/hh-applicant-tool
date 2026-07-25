@@ -13,7 +13,6 @@ from ..utils.date import parse_api_datetime
 from ..utils.string import rand_text
 
 if TYPE_CHECKING:
-    from ..ai.openai import ChatOpenAI
     from ..main import HHApplicantTool
 
 
@@ -105,7 +104,8 @@ class Operation(BaseOperation):
     def run(self, tool: HHApplicantTool, args: Namespace) -> None:
         self.tool = tool
         self.api_client = tool.api_client
-        self.resume_id = tool.first_resume_id()
+        #self.resume_id = tool.first_resume_id() #вместо id первого резюме берем id из аргументов
+        self.resume_id = args.resume_id
         self.reply_message = args.reply_message or tool.config.get(
             "reply_message"
         )
@@ -114,11 +114,15 @@ class Operation(BaseOperation):
         self.only_invitations = args.only_invitations
 
         self.message_prompt = args.message_prompt
-        self.cover_letter_ai = (tool.get_cover_letter_ai(args.system_prompt) if args.use_ai else None)
+        self.cover_letter_ai = (
+            tool.get_cover_letter_ai(args.system_prompt)
+            if args.use_ai
+            else None
+        )
         self.period = args.period
 
         logger.debug(f"{self.reply_message = }")
-        self.reply_employers()
+        return self.reply_employers()
 
     @staticmethod
     def _looks_like_employer_reply(text: str) -> bool:
@@ -162,7 +166,7 @@ class Operation(BaseOperation):
         resumes = self.tool.get_resumes()
         resumes = (
             list(filter(lambda x: x["id"] == self.resume_id, resumes))
-            if self.resume_id
+            if self.resume_id is not None # добавляем проверку на пустоту
             else resumes
         )
         resumes = list(
@@ -170,7 +174,10 @@ class Operation(BaseOperation):
                 lambda resume: resume["status"]["id"] == "published", resumes
             )
         )
-        self._reply_chats(user=me, resumes=resumes, blacklist=blacklist)
+        if not resumes:
+            logger.error("Нет опубликованных резюме")
+            return 1
+        return self._reply_chats(user=me, resumes=resumes, blacklist=blacklist)
 
     def _reply_chats(
         self,
@@ -194,7 +201,12 @@ class Operation(BaseOperation):
                 # except RepositoryError as e:
                 #     logger.exception(e)
 
-                if not (resume := resume_map.get(negotiation["resume"]["id"])):
+                if "resume" not in negotiation:
+                    continue
+
+                if not (
+                    resume := resume_map.get(negotiation["resume"].get("id"))
+                ):
                     continue
 
                 updated_at = parse_api_datetime(negotiation["updated_at"])
@@ -307,7 +319,15 @@ class Operation(BaseOperation):
                                 + f"\n\nЗадача: {self.message_prompt}"
                             )
                             send_message = (
-                                self.cover_letter_ai.complete(ai_query) or ""
+                                self.cover_letter_ai.complete(
+                                    ai_query,
+                                    purpose="Ответ работодателю",
+                                    context=(
+                                        f"{placeholders['employer_name']} — "
+                                        f"{placeholders['vacancy_name']}"
+                                    ),
+                                )
+                                or ""
                             ).strip()
                             logger.debug(f"AI message: {send_message}")
                         except AIError as ex:
