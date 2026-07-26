@@ -950,6 +950,10 @@ function fieldFor(a,scope){
     wrap.innerHTML=`<label>Резюме</label><select id="${id}" data-dest="resume_id" data-kind="choice" data-flag="${a.flag||'--resume-id'}" data-pos="0" data-resume="1"><option value="">— авто (первое опубликованное) —</option><option value="" disabled>загрузка…</option></select><div class="fh">${esc(help)}</div>`;
     return wrap;
   }
+  if(a.dest==='letter_template'){
+    wrap.innerHTML=`<label>Сопроводительное письмо</label><select id="${id}" data-dest="letter_template" data-kind="choice" data-flag="${a.flag||'--letter-template'}" data-pos="0" data-template="1"><option value="">— Авто: по ключевым словам шаблонов —</option><option value="" disabled>загрузка…</option></select><div class="fh">Шаблоны берутся из вкладки «Шаблоны писем». «Авто» — письмо подбирается по ключевым словам вакансии.</div>`;
+    return wrap;
+  }
   if(a.kind==='flag'||a.kind==='bool'){
     wrap.innerHTML=`<label class="chk"><input type="checkbox" id="${id}" data-dest="${a.dest}" data-kind="${a.kind}"> <span>${a.dest}</span></label><div class="fh">${esc(help)}</div>`;
     if(a.default===true)setTimeout(()=>{const el=$('#'+CSS.escape(id));if(el)el.checked=true;});
@@ -990,6 +994,7 @@ function openOp(name){
   const idx=Array.from(document.querySelectorAll('.navitem')).findIndex(n=>n.textContent.trim().startsWith(op.name));
   setActive(idx);
   populateResumeSelects();
+  populateTemplateSelects();
 }
 
 function collect(scope){
@@ -1082,6 +1087,20 @@ function initStream(){
   es.onerror=()=>{/* авто-реконнект */};
 }
 async function refreshState(){try{const s=await (await fetch('api/state')).json();setRunning(!!s.running);}catch(_){}}
+
+// Всплывающее уведомление. Раньше вызывалось (syncStats, sjobRun), но не было
+// определено — из-за чего клик по «Синхронизировать» падал с ReferenceError.
+function showToast(msg,type){
+  let host=document.getElementById('toasts');
+  if(!host){host=document.createElement('div');host.id='toasts';host.style.cssText='position:fixed;top:16px;right:16px;z-index:9999;display:flex;flex-direction:column;gap:8px;max-width:340px';document.body.appendChild(host);}
+  const t=document.createElement('div');
+  const bg=type==='error'?'#c0392b':(type==='success'?'#2e7d32':'#2c3e50');
+  t.style.cssText=`background:${bg};color:#fff;padding:10px 14px;border-radius:8px;box-shadow:0 4px 14px rgba(0,0,0,.25);font-size:13px;line-height:1.35;opacity:0;transition:opacity .2s`;
+  t.textContent=msg;
+  host.appendChild(t);
+  requestAnimationFrame(()=>{t.style.opacity='1';});
+  setTimeout(()=>{t.style.opacity='0';setTimeout(()=>t.remove(),250);},3500);
+}
 
 // ---- AI-провайдеры ---- #
 let AICFG={};
@@ -1372,6 +1391,22 @@ async function populateResumeSelects(force){
   const rs=await getResumes(force);
   const opts='<option value="">— авто (первое опубликованное) —</option>'+
     rs.map(r=>`<option value="${esc(r.id)}">${esc(r.title)}${r.status?(' — '+esc(r.status)):''}</option>`).join('');
+  sels.forEach(sel=>{const cur=sel.value;sel.innerHTML=opts;if(cur)sel.value=cur;});
+}
+
+// ---- Выпадающий список сопроводительных (шаблоны писем) ---- #
+let TEMPLATES=null;
+async function getTemplates(force){
+  if(TEMPLATES&&!force)return TEMPLATES;
+  try{const d=await (await fetch('api/templates')).json();TEMPLATES=d.templates||[];}catch(e){TEMPLATES=[];}
+  return TEMPLATES;
+}
+async function populateTemplateSelects(force){
+  const sels=document.querySelectorAll('select[data-template="1"]');
+  if(!sels.length)return;
+  const ts=await getTemplates(force);
+  const opts='<option value="">— Авто: по ключевым словам шаблонов —</option>'+
+    ts.filter(t=>t&&t.name).map(t=>`<option value="${esc(t.name)}">${esc(t.name)}</option>`).join('');
   sels.forEach(sel=>{const cur=sel.value;sel.innerHTML=opts;if(cur)sel.value=cur;});
 }
 

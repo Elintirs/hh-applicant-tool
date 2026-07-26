@@ -44,6 +44,7 @@ logger = logging.getLogger(__package__)
 class Namespace(BaseNamespace):
     resume_id: str | None
     letter_file: Path | None
+    letter_template: str | None
     ignore_employers: Path | None
     force_message: bool
     use_ai: bool
@@ -105,6 +106,14 @@ class Operation(BaseOperation):
             "--letter",
             help="Путь до файла с текстом сопроводительного письма.",
             type=Path,
+        )
+        parser.add_argument(
+            "--letter-template",
+            "--template",
+            dest="letter_template",
+            help="Имя шаблона письма из config.letter_templates (вкладка «Шаблоны писем»). "
+            "Если задано — используется именно этот шаблон, без подбора по ключевым словам.",
+            default=None,
         )
         parser.add_argument(
             "-f",
@@ -317,6 +326,19 @@ class Operation(BaseOperation):
             if args.letter_file
             else self.cover_letter
         )
+        # Явно выбранный шаблон из вкладки «Шаблоны писем» имеет приоритет и
+        # отключает автоподбор по ключевым словам: используем именно его.
+        self._forced_letter = False
+        if args.letter_template:
+            tpl = self._find_template_by_name(args.letter_template)
+            if tpl and tpl.get("text"):
+                self.cover_letter = tpl["text"]
+                self._forced_letter = True
+            else:
+                logger.warning(
+                    "Шаблон письма %r не найден в config.letter_templates",
+                    args.letter_template,
+                )
         self.area = args.area
         self.bottom_lat = args.bottom_lat
         self.currency = args.currency
@@ -1004,7 +1026,11 @@ class Operation(BaseOperation):
                             context=message_placeholders["vacancy_name"],
                         )
                     else:
-                        src = self._select_letter_template(vacancy)
+                        src = None
+                        # Если письмо задано явно (шаблон по имени), автоподбор
+                        # по ключевым словам пропускаем.
+                        if not getattr(self, "_forced_letter", False):
+                            src = self._select_letter_template(vacancy)
                         if src is None:
                             src = self.cover_letter
                         letter = rand_text(src) % message_placeholders
@@ -1602,6 +1628,14 @@ class Operation(BaseOperation):
         #     params["responses_count_enabled"] = bool2str(self.responses_count_enabled)
 
         return params
+
+    def _find_template_by_name(self, name: str) -> dict | None:
+        """Ищет шаблон письма по имени в config['letter_templates']."""
+        target = (name or "").strip().lower()
+        for tpl in self.tool.config.get("letter_templates") or []:
+            if isinstance(tpl, dict) and str(tpl.get("name", "")).strip().lower() == target:
+                return tpl
+        return None
 
     def _select_letter_template(self, vacancy: SearchVacancy) -> str | None:
         """Выбирает текст письма по ключевым словам (режим без AI).
