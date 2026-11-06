@@ -10,11 +10,12 @@ import threading
 import time
 from collections import Counter, defaultdict
 from datetime import datetime, timedelta, timezone
-from pathlib import Path
-from typing import Any
+from typing import TYPE_CHECKING, Any
 
-from ..tool import HHApplicantTool
 from .store import PanelStore
+
+if TYPE_CHECKING:
+    from .hh import HHService
 
 DAYS = 30
 RECENT_LIMIT = 30
@@ -36,27 +37,25 @@ def _parse_dt(value: str | None) -> datetime | None:
 
 
 class Stats:
-    def __init__(self, store: PanelStore, config_dir: Path) -> None:
+    def __init__(self, store: PanelStore, service: "HHService") -> None:
         self.store = store
-        self.config_dir = config_dir
+        self.service = service
+        self.key = f"stats:{service.profile}"
         self._lock = threading.Lock()
 
-    def _tool(self) -> HHApplicantTool:
-        # Капчу здесь решать некому: панель не должна зависнуть на input()
-        return HHApplicantTool(config_dir=self.config_dir, captcha_handling=False)
-
     def cached(self) -> dict[str, Any] | None:
-        return self.store.get("stats")
+        return self.store.get(self.key)
 
     def profile(self) -> dict[str, Any]:
-        tool = self._tool()
-        if not tool.token_config.get("token"):
-            return {"logged_in": False}
-        try:
-            me = tool.get_me()
-            resumes = tool.get_resumes()
-        except Exception as ex:  # noqa: BLE001
-            return {"logged_in": True, "error": str(ex)}
+        with self.service.lock:
+            tool = self.service.tool()
+            if not tool.token_config.get("token"):
+                return {"logged_in": False}
+            try:
+                me = tool.get_me()
+                resumes = tool.get_resumes()
+            except Exception as ex:  # noqa: BLE001
+                return {"logged_in": True, "error": str(ex)}
         return {
             "logged_in": True,
             "me": {
@@ -96,7 +95,11 @@ class Stats:
             self._lock.release()
 
     def _refresh(self) -> dict[str, Any]:
-        tool = self._tool()
+        with self.service.lock:
+            return self._collect()
+
+    def _collect(self) -> dict[str, Any]:
+        tool = self.service.tool()
         if not tool.token_config.get("token"):
             raise RuntimeError("Сначала войдите в аккаунт")
         by_state: Counter[str] = Counter()
@@ -162,5 +165,5 @@ class Stats:
             ],
             "recent": recent,
         }
-        self.store.set("stats", data)
+        self.store.set(self.key, data)
         return data

@@ -54,6 +54,7 @@ def normalize(item: dict[str, Any]) -> dict[str, Any]:
     mode = item.get("mode") or "daily"
     out: dict[str, Any] = {
         "id": item.get("id") or uuid.uuid4().hex[:10],
+        "profile": str(item.get("profile") or "."),
         "name": name or args[0],
         "args": args,
         "enabled": bool(item.get("enabled", True)),
@@ -206,7 +207,10 @@ class Scheduler:
 
     def _fire(self, item: dict[str, Any]) -> Job:
         job = self.jobs.submit(
-            item["args"], source=f"schedule:{item['id']}", title=item["name"]
+            item["args"],
+            source=f"schedule:{item['id']}",
+            title=item["name"],
+            profile=item.get("profile") or ".",
         )
 
         def mark(items):

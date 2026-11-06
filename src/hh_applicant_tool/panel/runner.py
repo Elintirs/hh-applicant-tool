@@ -16,12 +16,14 @@ import subprocess
 import sys
 import threading
 import time
+import json
 import uuid
 from collections import deque
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
 
+from .child import MARK_END, MARK_START
 from .store import PanelStore
 
 logger = logging.getLogger(__name__)
@@ -46,6 +48,7 @@ class Job:
     args: list[str]
     source: str
     title: str
+    profile: str = "."
     status: str = QUEUED
     created_at: float = field(default_factory=time.time)
     started_at: float | None = None
@@ -57,6 +60,10 @@ class Job:
     _proc: subprocess.Popen | None = None
     _stop_requested: bool = False
     _cond: threading.Condition = field(default_factory=threading.Condition)
+    # Вопрос, на который задача ждёт ответа (ввод кода, капча)
+    prompt: dict[str, Any] | None = None
+    _secret_args: list[str] = field(default_factory=list, repr=False)
+    _pending: str = ""
 
     @property
     def in_lane(self) -> bool:
@@ -77,7 +84,9 @@ class Job:
             "command": self.command,
             "source": self.source,
             "title": self.title,
+            "profile": self.profile,
             "status": self.status,
+            "prompt": self.prompt,
             "created_at": self.created_at,
             "started_at": self.started_at,
             "finished_at": self.finished_at,
@@ -92,6 +101,7 @@ class Job:
             args=list(d.get("args") or []),
             source=d.get("source", "manual"),
             title=d.get("title", ""),
+            profile=d.get("profile") or ".",
             status=d.get("status", FAILED),
             created_at=d.get("created_at") or time.time(),
             started_at=d.get("started_at"),
@@ -107,10 +117,11 @@ class Job:
 
 
 class JobManager:
-    def __init__(self, store: PanelStore, config_dir: Path) -> None:
+    def __init__(self, store: PanelStore, base_dir: Path) -> None:
         self.store = store
-        self.config_dir = config_dir
+        self.base_dir = base_dir
         self.jobs_dir = store.jobs_dir
+        self.captcha_dir = store.jobs_dir / "captcha"
         self.jobs_dir.mkdir(parents=True, exist_ok=True)
         self._lock = threading.RLock()
         self._jobs: dict[str, Job] = {}
@@ -148,13 +159,23 @@ class JobManager:
         with self._lock:
             return self._jobs.get(job_id)
 
-    def submit(self, args: list[str], *, source: str = "manual", title: str = "") -> Job:
+    def submit(
+        self,
+        args: list[str],
+        *,
+        source: str = "manual",
+        title: str = "",
+        profile: str = ".",
+        secret_args: list[str] | None = None,
+    ) -> Job:
         job = Job(
             id=uuid.uuid4().hex[:12],
             args=list(args),
             source=source,
             title=title or (args[0] if args else "команда"),
+            profile=profile or ".",
         )
+        job._secret_args = list(secret_args or [])
         with self._lock:
             self._jobs[job.id] = job
             if job.in_lane:
@@ -200,13 +221,30 @@ class JobManager:
         job = self.get(job_id)
         if not job or job.status != RUNNING or not job._proc or not job._proc.stdin:
             return False
+        secret = bool(job.prompt and (job.prompt.get("secret") or job.prompt.get("kind") == "captcha"))
         try:
             job._proc.stdin.write((text + "\n").encode())
             job._proc.stdin.flush()
         except (BrokenPipeError, OSError):
             return False
-        self._append(job, text + "\n", echo=True)
+        self._append(job, ("•" * 6 if secret and job.prompt.get("secret") else text) + "\n", echo=True)
+        self._set_prompt(job, None)
         return True
+
+    def prompts(self) -> list[dict[str, Any]]:
+        """Задачи, которые сейчас ждут ответа человека."""
+        with self._lock:
+            return [
+                {"job_id": j.id, "title": j.title, **(j.prompt or {})}
+                for j in self._jobs.values()
+                if j.status == RUNNING and j.prompt
+            ]
+
+    def captcha_path(self, job: Job) -> Path | None:
+        name = (job.prompt or {}).get("image")
+        if not name or "/" in name or "\\" in name:
+            return None
+        return self.captcha_dir / name
 
     def delete(self, job_id: str) -> bool:
         with self._lock:
@@ -288,12 +326,7 @@ class JobManager:
         self._start(job)
 
     def _command(self, args: list[str]) -> list[str]:
-        return [
-            sys.executable,
-            "-m",
-            "hh_applicant_tool",
-            *args,
-        ]
+        return [sys.executable, "-m", "hh_applicant_tool.panel.child", *args]
 
     def _start(self, job: Job) -> None:
         env = os.environ.copy()
@@ -302,8 +335,16 @@ class JobManager:
         # Путь передаём через окружение: флаг --config-dir в утилите
         # срабатывает слишком поздно (путь кэшируется при создании объекта).
         # Профиль уже входит в путь, поэтому HH_PROFILE_ID убираем
-        env["CONFIG_DIR"] = str(self.config_dir)
-        env.pop("HH_PROFILE_ID", None)
+        env["CONFIG_DIR"] = str(self.base_dir)
+        if job.profile and job.profile != ".":
+            env["HH_PROFILE_ID"] = job.profile
+        else:
+            env.pop("HH_PROFILE_ID", None)
+        env["HH_PANEL_CAPTCHA_DIR"] = str(self.captcha_dir)
+        if job._secret_args:
+            env["HH_PANEL_SECRET_ARGV"] = json.dumps(job._secret_args)
+        else:
+            env.pop("HH_PANEL_SECRET_ARGV", None)
         try:
             proc = subprocess.Popen(
                 self._command(job.args),
@@ -348,13 +389,61 @@ class JobManager:
                     text += decoder_buf.decode("utf-8", errors="replace")
                     decoder_buf = b""
             if text:
+                text = self._extract_marks(job, text)
+            if text:
                 self._append(job, text)
+        if job._pending:
+            self._append(job, job._pending)
+            job._pending = ""
+        self._set_prompt(job, None)
         code = proc.wait()
         if job._stop_requested:
             status = STOPPED
         else:
             status = SUCCESS if code == 0 else FAILED
         self._finish(job, status, code)
+
+    def _extract_marks(self, job: Job, text: str) -> str:
+        """Вырезает служебные метки обёртки и обновляет вопрос задачи."""
+        text = job._pending + text
+        job._pending = ""
+        out = []
+        while True:
+            start = text.find(MARK_START)
+            if start < 0:
+                # Хвост может оказаться началом метки, разрезанной по чанкам
+                for n in range(min(len(MARK_START) - 1, len(text)), 0, -1):
+                    if MARK_START.startswith(text[-n:]):
+                        job._pending = text[-n:]
+                        text = text[:-n]
+                        break
+                out.append(text)
+                break
+            end = text.find(MARK_END, start)
+            if end < 0:
+                out.append(text[:start])
+                job._pending = text[start:]
+                break
+            out.append(text[:start])
+            raw = text[start + len(MARK_START) : end]
+            text = text[end + len(MARK_END) :]
+            try:
+                payload = json.loads(raw)
+            except ValueError:
+                continue
+            if payload.get("kind") == "answered":
+                self._set_prompt(job, None)
+            else:
+                self._set_prompt(job, payload)
+        return "".join(out)
+
+    def _set_prompt(self, job: Job, prompt: dict[str, Any] | None) -> None:
+        with job._cond:
+            if job.prompt == prompt:
+                return
+            job.prompt = prompt
+            # Счётчик версии, чтобы поток SSE заметил смену вопроса
+            job._cond.notify_all()
 
     def _append(self, job: Job, text: str, echo: bool = False) -> None:
         if echo:

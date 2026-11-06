@@ -106,6 +106,30 @@ class SettingsError(ValueError):
     pass
 
 
+class _Loose(dict):
+    """Для предпросмотра промптов: неизвестный плейсхолдер видно как ‹имя›."""
+
+    def __missing__(self, key: str) -> str:
+        return f"‹{key}›"
+
+
+def _text_keys() -> list[dict[str, Any]]:
+    from ..operations import apply_vacancies as av
+    from ..operations import reply_chats as rc
+
+    return [
+        {"key": "ai_filter_prompt", "group": "vacancies", "title": "Фильтр вакансий", "hint": "Модель отвечает да или нет. Используется с флагом --ai-filter.", "default": av.DEFAULT_AI_FILTER_PROMPT},
+        {"key": "test_choice_prompt", "group": "tests", "title": "Тест: выбор варианта", "hint": "Вопрос теста работодателя с вариантами ответа.", "default": av.DEFAULT_TEST_CHOICE_PROMPT},
+        {"key": "test_text_prompt", "group": "tests", "title": "Тест: свободный ответ", "hint": "Вопрос теста, где нужно написать ответ.", "default": av.DEFAULT_TEST_TEXT_PROMPT},
+        {"key": "reply_chat_user_prompt", "group": "chats", "title": "Ответ работодателю", "hint": "Когда работодатель написал в чат.", "default": rc.DEFAULT_USER_PROMPT},
+        {"key": "reply_chat_options_prompt", "group": "chats", "title": "Выбор кнопки", "hint": "Когда в сообщении есть варианты ответа.", "default": rc.DEFAULT_OPTIONS_PROMPT},
+        {"key": "reply_chat_bump_prompt", "group": "chats", "title": "Напоминание о себе", "hint": f"Если работодатель молчит дольше {rc.BUMP_AFTER_DAYS} дней.", "default": rc.DEFAULT_BUMP_PROMPT},
+        {"key": "reply_chat_farewell_message", "group": "chats", "title": "Прощание при отказе", "hint": "После него автоответчик выходит из чата.", "default": rc.FAREWELL_MESSAGE},
+        {"key": "apply_mail_subject", "group": "mail", "title": "Тема письма на почту", "hint": "Для отклика с флагом --send-email.", "default": av.DEFAULT_APPLY_MAIL_SUBJECT},
+        {"key": "apply_mail_body", "group": "mail", "title": "Текст письма на почту", "hint": "HTML разрешён.", "default": av.DEFAULT_APPLY_MAIL_BODY},
+    ]
+
+
 class Settings:
     def __init__(self, config_dir: Path) -> None:
         self.config_dir = config_dir
@@ -363,6 +387,92 @@ class Settings:
         cfg["general"] = general
         self._save(cfg)
         return self.read_letters()
+
+    # ---- промпты и тексты ------------------------------------------------
+
+    def read_texts(self) -> dict[str, Any]:
+        general = self._config().get_section("general")
+        items = [{**t, "value": general.get(t["key"], "")} for t in _text_keys()]
+        smtp = general.get("smtp") or {}
+        return {
+            "items": items,
+            "smtp": {k: smtp.get(k) for k in ("host", "port", "user", "password", "ssl", "starttls")},
+            "smtp_from": (self._config().get("smtp") or {}).get("from", ""),
+            "has_comments": self.has_comments(),
+        }
+
+    def save_texts(self, payload: dict[str, Any]) -> dict[str, Any]:
+        cfg = self._config()
+        general = cfg.get("general") if isinstance(cfg.get("general"), dict) else {}
+        keys = {t["key"]: t for t in _text_keys()}
+        for key, value in (payload.get("values") or {}).items():
+            if key not in keys:
+                raise SettingsError(f"Неизвестный ключ: {key}")
+            value = str(value or "").replace("\r\n", "\n")
+            if value.strip() and value != keys[key]["default"]:
+                general[key] = value
+            else:
+                general.pop(key, None)
+        if "smtp" in payload:
+            smtp = {k: v for k, v in (payload.get("smtp") or {}).items() if v not in (None, "")}
+            if "port" in smtp:
+                try:
+                    smtp["port"] = int(smtp["port"])
+                except (TypeError, ValueError) as ex:
+                    raise SettingsError("Порт SMTP должен быть числом") from ex
+            for flag in ("ssl", "starttls"):
+                if flag in smtp:
+                    smtp[flag] = bool(smtp[flag])
+            if smtp.get("host"):
+                general["smtp"] = smtp
+            else:
+                general.pop("smtp", None)
+            # Адрес отправителя утилита читает из корневой секции [smtp]
+            sender = str(payload.get("smtp_from") or "").strip()
+            if sender:
+                cfg["smtp"] = {**(cfg.get("smtp") or {}), "from": sender}
+            elif isinstance(cfg.get("smtp"), dict):
+                cfg["smtp"].pop("from", None)
+                if not cfg["smtp"]:
+                    cfg.pop("smtp")
+        cfg["general"] = general
+        self._save(cfg)
+        return self.read_texts()
+
+    def test_smtp(self, to: str) -> None:
+        import smtplib
+        from email.message import EmailMessage
+
+        to = to.strip()
+        if "@" not in to:
+            raise SettingsError("Укажите адрес, куда отправить проверку")
+        cfg = self._config()
+        conf = cfg.get_section("general").get("smtp") or {}
+        if not conf.get("host") or not conf.get("port"):
+            raise SettingsError("Сначала сохраните сервер и порт SMTP")
+        try:
+            cls = smtplib.SMTP_SSL if conf.get("ssl") else smtplib.SMTP
+            with cls(conf["host"], int(conf["port"]), timeout=20) as server:
+                if not conf.get("ssl") and conf.get("starttls", True):
+                    server.starttls()
+                if conf.get("user") and conf.get("password"):
+                    server.login(conf["user"], conf["password"])
+                msg = EmailMessage()
+                msg["Subject"] = "Проверка почты hh-applicant-tool"
+                msg["From"] = (cfg.get("smtp") or {}).get("from") or conf.get("user") or to
+                msg["To"] = to
+                msg.set_content("Если вы читаете это письмо, отправка откликов на почту работает.")
+                server.send_message(msg)
+        except (OSError, smtplib.SMTPException) as ex:
+            raise SettingsError(f"Письмо не отправилось: {ex}") from ex
+
+    @staticmethod
+    def preview_loose(template: str) -> str:
+        values = _Loose({**SAMPLE_PLACEHOLDERS})
+        try:
+            return rand_text(template) % values
+        except (ValueError, TypeError) as ex:
+            raise SettingsError(f"Ошибка в шаблоне: {ex}") from ex
 
     @staticmethod
     def preview(template: str, placeholders: dict[str, str] | None = None) -> str:

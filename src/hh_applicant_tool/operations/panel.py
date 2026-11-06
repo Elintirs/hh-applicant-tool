@@ -56,7 +56,15 @@ class Operation(BaseOperation):
                 "Панель слушает %s без токена. Не открывайте этот порт в сеть!",
                 args.host,
             )
-        # Профиль уже учтён в config_dir_path, дочерним процессам его не
-        # передаём, чтобы путь не удвоился
+        from pathlib import Path
+
+        from ..constants import CONFIG_DIR
+
+        # Флаг --config-dir утилита применяет поздно, поэтому берём путь
+        # так же, как она: аргумент, затем CONFIG_DIR, затем путь по умолчанию
+        base = Path(
+            getattr(args, "config_dir", None) or os.getenv("CONFIG_DIR") or CONFIG_DIR
+        ).expanduser().resolve()
+        profile = getattr(args, "profile_id", None) or os.getenv("HH_PROFILE_ID") or "."
         os.environ.pop("HH_PROFILE_ID", None)
-        serve(tool.config_dir_path, args.host, args.port, args.token)
+        serve(base, profile, args.host, args.port, args.token)
