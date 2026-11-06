@@ -29,13 +29,13 @@ export default async function overview(root, ctx) {
   if (profile.logged_in === false) {
     account = section("Аккаунт", null, h("div", { class: "card-body" }, empty({
       iconName: "user", title: "Вход не выполнен",
-      text: "Без входа утилита не сможет откликаться. Вход идёт по коду из СМС или почты: введёте его в окне задачи.",
-      action: button("Войти в hh.ru", { variant: "primary", iconName: "play", onClick: () => ctx.navigate("run", { op: "authorize" }) }),
+      text: "Без входа утилита не сможет откликаться. Код из СМС или почты спросим прямо в панели.",
+      action: button("Войти в hh.ru", { variant: "primary", iconName: "login", onClick: () => ctx.navigate("login") }),
     })));
   } else if (profile.error) {
     account = section("Аккаунт", null, h("div", { class: "card-body" }, callout("danger", h("p", null, `Не удалось получить профиль: ${profile.error}`),
       h("p", null, "Если токен устарел, войдите заново."),
-      h("div", null, button("Войти заново", { size: "sm", onClick: () => ctx.navigate("run", { op: "authorize" }) })))));
+      h("div", null, button("Войти заново", { size: "sm", onClick: () => ctx.navigate("login") })))));
   } else {
     const me = profile.me;
     const name = [me.first_name, me.last_name].filter(Boolean).join(" ") || "Без имени";
@@ -78,15 +78,15 @@ export default async function overview(root, ctx) {
 
   // ---- быстрые действия ----
   const quick = section("Быстрые действия", null, h("div", { class: "card-body row" },
-    button("Откликнуться (пробно)", { iconName: "play", onClick: () => ctx.navigate("run", { op: "apply-vacancies" }) }),
-    button("Поднять резюме", { iconName: "refresh", onClick: () => ctx.navigate("run", { op: "update-resumes" }) }),
-    button("Автоответчик", { iconName: "mail", onClick: () => ctx.navigate("run", { op: "reply-chats" }) })));
+    button("Подобрать вакансии", { iconName: "search", onClick: () => ctx.navigate("vacancies") }),
+    button("Чаты", { iconName: "chat", onClick: () => ctx.navigate("chats", { unread: "1" }) }),
+    button("Поднять резюме", { iconName: "up", onClick: () => ctx.navigate("resumes") })));
 
   // ---- сводка ----
   let statsLine = null;
   if (stats) {
     const last7 = stats.days.slice(-7).reduce((a, d) => a + Object.values(d.by_state).reduce((x, y) => x + y, 0), 0);
-    statsLine = callout("info", h("p", null, `За неделю ${last7} ${plural(last7, "отклик", "отклика", "откликов")}, всего ${stats.total}. `, h("a", { href: "#/stats" }, "Подробнее")));
+    statsLine = callout("info", h("p", null, `За неделю ${last7} ${plural(last7, "отклик", "отклика", "откликов")}, всего ${stats.total}. `, h("a", { href: "#/negotiations?tab=stats" }, "Подробнее")));
   }
 
   mount(root,

@@ -37,10 +37,11 @@ function placeholderChips(list, target) {
     }, p)));
 }
 
-export default async function letters(root) {
-  mount(root, pageHeader("Письма", "Сопроводительные письма к откликам."), skeleton(6));
+export default async function letters(root, ctx, opts = {}) {
+  const header = (...a) => (opts.embedded ? null : pageHeader(...a));
+  mount(root, header("Письма", "Сопроводительные письма к откликам."), skeleton(6));
   let data;
-  try { data = await get("letters"); } catch (err) { mount(root, errorState(err, () => letters(root))); return; }
+  try { data = await get("letters"); } catch (err) { mount(root, errorState(err, () => letters(root, ctx, opts))); return; }
 
   let draft;
   const resetDraft = () => {
@@ -151,7 +152,7 @@ export default async function letters(root) {
   }
 
   mount(root,
-    pageHeader("Письма", "Сопроводительные письма к откликам: шаблоны по ключевым словам, общее письмо и промпт для AI."),
+    header("Письма", "Сопроводительные письма к откликам: шаблоны по ключевым словам, общее письмо и промпт для AI."),
     h("div", { class: "stack" },
       h("div", null, segmented([["templates", "Шаблоны"], ["default", "Общее письмо"], ["prompt", "Промпт для AI"]], tab, (t) => { tab = t; renderBody(); }, "Раздел")),
       body,

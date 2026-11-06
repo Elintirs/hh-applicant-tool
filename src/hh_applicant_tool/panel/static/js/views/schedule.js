@@ -164,6 +164,14 @@ export default async function schedule(root, ctx) {
   }
 
   if (!(await load())) return;
+  // Черновик задачи с другого экрана (например, из подбора вакансий)
+  if (ctx.params.get("draft")) {
+    try {
+      const d = JSON.parse(sessionStorage.getItem("hh-panel-schedule-draft") || "null");
+      if (d) { editing = "new"; draft = { ...d, enabled: true }; }
+    } catch { /* ничего */ }
+    sessionStorage.removeItem("hh-panel-schedule-draft");
+  }
   render();
   const timer = setInterval(async () => { if (!editing && (await load())) render(); }, 30000);
   return () => clearInterval(timer);

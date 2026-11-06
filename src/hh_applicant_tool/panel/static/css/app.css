@@ -178,6 +178,7 @@ svg { flex-shrink: 0; }
 .select { appearance: none; padding-right: 32px; background-image: linear-gradient(45deg, transparent 50%, currentColor 50%), linear-gradient(135deg, currentColor 50%, transparent 50%); background-position: calc(100% - 16px) 55%, calc(100% - 11px) 55%; background-size: 5px 5px; background-repeat: no-repeat; }
 .input-group { display: flex; gap: var(--space-2); }
 .input-group .input { flex: 1; }
+.input-group .select { width: auto; flex: 0 0 auto; min-width: 72px; }
 
 .check { display: inline-flex; align-items: flex-start; gap: var(--space-2); cursor: pointer; }
 .check input { width: 16px; height: 16px; margin: 2px 0 0; accent-color: var(--color-accent); }
@@ -396,10 +397,93 @@ details.disclosure > summary:hover { color: var(--color-text); }
 .task-row.is-open { background: var(--color-surface-sunken); }
 .task-row.is-open:last-child { border-radius: 0 0 var(--radius-lg) var(--radius-lg); }
 
+/* ===== Аккаунт в меню ===== */
+.account { position: relative; margin: 0 0 var(--space-3); }
+.account-trigger {
+  display: flex; align-items: center; gap: var(--space-3); width: 100%; padding: var(--space-2) var(--space-3);
+  border: 1px solid var(--color-border); border-radius: var(--radius-md); background: var(--color-surface-sunken);
+  color: var(--color-text); font: inherit; text-align: left; cursor: pointer;
+}
+.account-trigger:hover { background: var(--color-surface-hover); }
+.account-avatar { display: grid; place-items: center; width: 30px; height: 30px; border-radius: 50%; background: var(--color-surface-hover); color: var(--color-text-muted); flex-shrink: 0; position: relative; }
+.account-avatar::after { content: ""; position: absolute; right: -1px; bottom: -1px; width: 9px; height: 9px; border-radius: 50%; border: 2px solid var(--color-surface); background: var(--color-text-subtle); }
+.account-on::after { background: var(--color-success); }
+.account-error::after { background: var(--color-danger); }
+.account-text { display: flex; flex-direction: column; min-width: 0; flex: 1; }
+.account-name { font-weight: var(--font-weight-medium); font-size: var(--font-size-sm); }
+.account-sub { font-size: var(--font-size-xs); color: var(--color-text-subtle); }
+.account-menu {
+  position: absolute; left: 0; right: 0; top: calc(100% + 4px); z-index: 45; padding: var(--space-1);
+  background: var(--color-surface-raised); border: 1px solid var(--color-border); border-radius: var(--radius-md); box-shadow: var(--shadow-lg);
+}
+.account-item { display: flex; align-items: center; gap: var(--space-2); width: 100%; padding: 8px var(--space-3); border: 0; border-radius: 6px; background: none; color: var(--color-text); font: inherit; font-size: var(--font-size-sm); text-align: left; cursor: pointer; }
+.account-item:hover, .account-item:focus-visible { background: var(--color-surface-hover); }
+.account-item[aria-current="true"] { color: var(--color-accent-text); }
+.account-sep { height: 1px; margin: var(--space-1) 0; background: var(--color-border); }
+.account-label { padding: 4px var(--space-3); font-size: var(--font-size-xs); color: var(--color-text-subtle); text-transform: uppercase; letter-spacing: 0.06em; }
+
+/* ===== Диалог вопроса и капча ===== */
+.modal-prompt .modal-body { gap: var(--space-4); }
+.captcha-img { display: block; max-width: 100%; height: auto; min-height: 60px; border-radius: var(--radius-md); border: 1px solid var(--color-border); background: #fff; image-rendering: auto; }
+.prompt-pill {
+  position: fixed; left: 50%; bottom: var(--space-5); transform: translateX(-50%); z-index: 49;
+  display: inline-flex; align-items: center; gap: var(--space-2); height: 40px; padding: 0 var(--space-4);
+  border: 0; border-radius: var(--radius-full); background: var(--color-warning); color: var(--gray-950);
+  font: inherit; font-weight: var(--font-weight-semibold); box-shadow: var(--shadow-lg); cursor: pointer;
+}
+
+/* ===== Вход ===== */
+.login-layout { display: grid; grid-template-columns: minmax(0, 440px) minmax(0, 1fr); gap: var(--space-5); align-items: start; }
+.login-step { display: flex; align-items: center; gap: var(--space-2); font-weight: var(--font-weight-medium); }
+.login-done { color: var(--color-success); }
+.login-error { color: var(--color-danger); }
+.log-compact { min-height: 0; max-height: 220px; border-radius: var(--radius-md); font-size: 12px; }
+.log-compact:empty { display: none; }
+.log-file { min-height: 420px; }
+
+/* ===== Резюме ===== */
+.kpi-sm { font-size: var(--font-size-xl); }
+.resume-stats { padding-top: var(--space-2); border-top: 1px solid var(--color-border); }
+.resume-editor { border-top: 1px solid var(--color-border); background: var(--color-surface-sunken); border-radius: 0 0 var(--radius-lg) var(--radius-lg); }
+
+/* ===== Вакансии ===== */
+.search-bar { display: grid; grid-template-columns: minmax(0, 1fr) minmax(160px, 260px) auto; gap: var(--space-2); }
+.vacancy h3 a { color: var(--color-text); text-decoration: none; }
+.vacancy h3 a:hover { color: var(--color-accent-text); text-decoration: underline; }
+.vacancy-salary { font-weight: var(--font-weight-semibold); }
+.vacancy-snippet { display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden; font-size: var(--font-size-sm); }
+.vacancy-details { display: flex; flex-direction: column; gap: var(--space-3); padding-top: var(--space-3); border-top: 1px solid var(--color-border); }
+.card.is-hidden, .card.is-done { opacity: 0.75; }
+.pre-line { white-space: pre-line; max-height: 320px; overflow: auto; }
+
+/* ===== Чаты ===== */
+.chats-layout { display: grid; grid-template-columns: 340px minmax(0, 1fr); gap: var(--space-5); align-items: start; }
+.chat-list { max-height: calc(100vh - 220px); overflow: auto; }
+.chat-row { display: flex; flex-direction: column; gap: 2px; width: 100%; padding: var(--space-3) var(--space-4); border: 0; border-top: 1px solid var(--color-border); background: none; color: inherit; font: inherit; text-align: left; cursor: pointer; }
+.chat-row:first-child { border-top: 0; }
+.chat-row:hover { background: var(--color-surface-hover); }
+.chat-row[aria-current="true"] { background: var(--color-accent-soft); }
+.chat-title { font-weight: var(--font-weight-medium); }
+.chat-title.is-unread { font-weight: var(--font-weight-semibold); }
+.chat-last { color: var(--color-text-muted); font-size: var(--font-size-sm); }
+.chat-row .count { min-width: 20px; height: 20px; padding: 0 6px; display: inline-grid; place-items: center; border-radius: var(--radius-full); background: var(--color-accent); color: var(--button-primary-text); font-size: 11px; font-weight: var(--font-weight-semibold); }
+.chat-more { padding: var(--space-2); text-align: center; border-top: 1px solid var(--color-border); }
+.chat-pane { display: flex; flex-direction: column; min-height: 520px; max-height: calc(100vh - 220px); }
+.chat-thread { flex: 1; overflow: auto; padding: var(--space-4) var(--space-5); display: flex; flex-direction: column; gap: var(--space-2); background: var(--color-surface-sunken); }
+.bubble { max-width: min(560px, 85%); padding: var(--space-2) var(--space-3); border-radius: 14px 14px 14px 4px; background: var(--color-surface); border: 1px solid var(--color-border); align-self: flex-start; }
+.bubble.is-mine { align-self: flex-end; border-radius: 14px 14px 4px 14px; background: var(--color-accent-soft); border-color: transparent; }
+.bubble-author { display: flex; gap: var(--space-2); align-items: center; font-size: var(--font-size-xs); font-weight: var(--font-weight-semibold); color: var(--color-text-muted); margin-bottom: 2px; }
+.bubble-text { white-space: pre-wrap; word-break: break-word; }
+.bubble-time { font-size: 11px; color: var(--color-text-subtle); text-align: right; margin-top: 2px; }
+.chat-composer { display: flex; flex-direction: column; gap: var(--space-2); padding: var(--space-3) var(--space-5) var(--space-4); border-top: 1px solid var(--color-border); }
+.chat-composer .textarea { min-height: 72px; }
+.chat-composer .chips { max-height: 92px; overflow: auto; }
+
 /* ===== Адаптив ===== */
 @media (max-width: 1080px) {
   .grid-4 { grid-template-columns: repeat(2, minmax(0, 1fr)); }
-  .jobs-layout, .run-layout { grid-template-columns: minmax(0, 1fr); }
+  .jobs-layout, .run-layout, .chats-layout, .login-layout { grid-template-columns: minmax(0, 1fr); }
+  .chat-list { max-height: 300px; }
   .op-list { display: none; }
   .op-select { display: block; }
   .jobs-list { max-height: 320px; }
@@ -427,6 +511,10 @@ details.disclosure > summary:hover { color: var(--color-text); }
   .task-row-head { flex-wrap: wrap; padding: var(--space-3) var(--space-4); }
   .task-row-body { padding: 0 var(--space-4) var(--space-4); }
   .savebar-inner { flex-wrap: wrap; }
+  .search-bar { grid-template-columns: minmax(0, 1fr); }
+  .chat-pane { max-height: none; }
+  .chat-thread { max-height: 60vh; padding: var(--space-3); }
+  .chat-composer { padding: var(--space-3); }
   h1 { font-size: var(--font-size-xl); }
 }
 

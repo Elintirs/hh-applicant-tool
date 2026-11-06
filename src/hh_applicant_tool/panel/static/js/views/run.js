@@ -25,7 +25,7 @@ function splitMulti(v) {
 }
 
 // Превращает значения формы в аргументы CLI
-function argsFor(defs, values) {
+export function argsFor(defs, values) {
   const opts = [], positional = [];
   for (const a of defs) {
     const v = values[a.dest];
@@ -82,7 +82,7 @@ function isDry(vals) {
 }
 
 // Один контрол для аргумента. lookups: списки резюме и шаблонов писем
-function control(def, value, onChange, lookups) {
+export function control(def, value, onChange, lookups) {
   const label = def.help ? def.help.split(/[.(]/)[0].trim() : def.dest;
   const shortLabel = label.length > 70 ? label.slice(0, 67) + "…" : label;
   const help = def.help && def.help.length > shortLabel.length ? def.help : undefined;
