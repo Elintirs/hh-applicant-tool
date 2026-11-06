@@ -60,10 +60,13 @@ function kpi(label, value, note) {
 
 const pct = (a, b) => (b ? `${Math.round((a / b) * 100)}%` : "–");
 
-export default async function stats(root) {
-  mount(root, pageHeader("Статистика", "Отклики из hh.ru."), skeleton(6));
+export default async function stats(root, ctx, opts = {}) {
+  const head = (lead, ...actions) => (opts.embedded
+    ? h("div", { class: "row-between" }, h("p", { class: "muted" }, lead), h("div", { class: "row" }, ...actions))
+    : pageHeader("Статистика", lead, ...actions));
+  mount(root, head("Отклики из hh.ru."), skeleton(6));
   let data;
-  try { data = (await get("stats")).stats; } catch (err) { mount(root, errorState(err, () => stats(root))); return; }
+  try { data = (await get("stats")).stats; } catch (err) { mount(root, errorState(err, () => stats(root, ctx, opts))); return; }
 
   const refreshBtn = button("Обновить из hh.ru", { variant: "primary", iconName: "refresh" });
   const doRefresh = () => busy(refreshBtn, async () => {
@@ -74,7 +77,7 @@ export default async function stats(root) {
 
   function render() {
     if (!data) {
-      mount(root, pageHeader("Статистика", "Отклики из hh.ru.", refreshBtn),
+      mount(root, head("Отклики из hh.ru.", refreshBtn),
         h("div", { class: "card" }, empty({ iconName: "chart", title: "Данных пока нет", text: "Загрузим отклики из hh.ru и посчитаем сводку. Это займёт до минуты, если откликов много." , action: refreshBtn })));
       return;
     }
@@ -85,7 +88,7 @@ export default async function stats(root) {
     const maxResume = Math.max(1, ...data.by_resume.map((r) => r.count));
 
     mount(root,
-      pageHeader("Статистика", `Отклики из hh.ru. Обновлено ${relTime(data.updated_at)}.`, refreshBtn),
+      head(`Отклики из hh.ru. Обновлено ${relTime(data.updated_at)}.`, refreshBtn),
       h("div", { class: "stack-lg" },
         data.truncated ? callout("info", h("p", null, `Посчитаны последние ${data.total} откликов.`)) : null,
         h("div", { class: "grid-4" },
