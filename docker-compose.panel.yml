@@ -1,0 +1,37 @@
+# Веб-панель hh-applicant-tool в Docker.
+#
+#   docker compose -f docker-compose.panel.yml up -d --build
+#
+# Панель откроется на http://localhost:8090. Конфиг, токен и история
+# запусков лежат в ./config. Порт проброшен только на 127.0.0.1 хоста:
+# панель запускает любые команды и показывает ключи API. Для доступа
+# с другой машины используйте SSH-туннель или задайте HH_PANEL_TOKEN.
+#
+# Разовая команда без панели:
+#   docker compose -f docker-compose.panel.yml run --rm hh whoami
+services:
+  panel:
+    build: .
+    image: hh-applicant-tool:latest
+    container_name: hh-panel
+    command: ["panel", "--host", "0.0.0.0", "--port", "8090"]
+    ports:
+      - "127.0.0.1:8090:8090"
+    volumes:
+      - ./config:/config
+      # Время в расписании считается по часовому поясу хоста
+      - /etc/localtime:/etc/localtime:ro
+    environment:
+      - CONFIG_DIR=/config
+      # - TZ=Europe/Moscow
+      # - HH_PANEL_TOKEN=придумайте-длинный-токен
+    restart: unless-stopped
+
+  hh:
+    image: hh-applicant-tool:latest
+    profiles: ["cli"]
+    volumes:
+      - ./config:/config
+      - /etc/localtime:/etc/localtime:ro
+    environment:
+      - CONFIG_DIR=/config
