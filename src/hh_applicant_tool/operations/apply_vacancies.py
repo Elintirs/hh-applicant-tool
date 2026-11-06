@@ -218,6 +218,7 @@ class Namespace(BaseNamespace):
     max_responses: int
     send_email: bool
     skip_tests: bool
+    letter_template: str | None
 
 
 class Operation(BaseOperation):
@@ -238,6 +239,8 @@ class Operation(BaseOperation):
     total_pages: int
 
     # Шаблоны промптов и писем
+    cover_letter_templates: list[dict[str, Any]]
+    letter_template: dict[str, Any] | None
     cover_letter_prompt: str
     ai_filter_prompt: str
     test_choice_prompt: str
@@ -290,6 +293,11 @@ class Operation(BaseOperation):
             help="Всегда отправлять сопроводительное письмо при отклике, даже когда оно не требуется",
             action=argparse.BooleanOptionalAction,
             default=True,
+        )
+        parser.add_argument(
+            "--letter-template",
+            "--template",
+            help="Взять шаблон письма с этим названием из general.cover_letter_templates. Явно выбранный шаблон важнее AI и автоподбора по ключевым словам",
         )
         parser.add_argument(
             "--ai-filter",
@@ -475,6 +483,29 @@ class Operation(BaseOperation):
         self.tool = tool
         config = tool.general_config
         self.cover_letter = config.get("cover_letter", DEFAULT_COVER_LETTER)
+        self.cover_letter_templates = [
+            t
+            for t in config.get("cover_letter_templates") or []
+            if isinstance(t, dict) and t.get("text")
+        ]
+        self.letter_template = None
+        if args.letter_template:
+            self.letter_template = next(
+                (
+                    t
+                    for t in self.cover_letter_templates
+                    if t.get("name") == args.letter_template
+                ),
+                None,
+            )
+            if self.letter_template is None:
+                names = ", ".join(
+                    str(t.get("name")) for t in self.cover_letter_templates
+                )
+                raise OperationError(
+                    f"Шаблон письма {args.letter_template!r} не найден. "
+                    f"Есть: {names or 'шаблонов нет'}"
+                )
         for name in SEARCH_PARAM_NAMES:
             setattr(self, name, getattr(args, name))
         self.dry_run = args.dry_run
@@ -876,7 +907,13 @@ class Operation(BaseOperation):
         ):
             return ""
 
-        if self.cover_letter_ai:
+        if self.letter_template:
+            letter = render_template(
+                rand_text(self.letter_template["text"]),
+                message_placeholders,
+                f"шаблоне письма {self.letter_template.get('name')!r}",
+            )
+        elif self.cover_letter_ai:
             prompt = render_template(
                 self.cover_letter_prompt,
                 message_placeholders,
@@ -885,14 +922,45 @@ class Operation(BaseOperation):
             logger.debug("prompt: %s", prompt)
             letter = self.cover_letter_ai.complete(prompt)
         else:
+            template = self._match_letter_template(vacancy)
             letter = render_template(
-                rand_text(self.cover_letter),
+                rand_text(template["text"] if template else self.cover_letter),
                 message_placeholders,
                 "сопроводительного письма",
             )
 
         logger.debug("Сопроводительное письмо: %.255s", letter)
         return letter
+
+    def _match_letter_template(self, vacancy: dict) -> dict[str, Any] | None:
+        """Первый шаблон, чьё ключевое слово есть в названии или описании
+        вакансии. Шаблон без ключевых слов - запасной."""
+        if not self.cover_letter_templates:
+            return None
+        snippet = vacancy.get("snippet") or {}
+        haystack = " ".join(
+            filter(
+                None,
+                [
+                    vacancy.get("name"),
+                    snippet.get("requirement"),
+                    snippet.get("responsibility"),
+                    vacancy.get("description"),
+                ],
+            )
+        ).lower()
+        fallback = None
+        for t in self.cover_letter_templates:
+            keywords = [
+                str(k).strip().lower() for k in t.get("keywords") or [] if str(k).strip()
+            ]
+            if not keywords:
+                fallback = fallback or t
+                continue
+            if any(k in haystack for k in keywords):
+                logger.debug("Шаблон письма по ключевому слову: %s", t.get("name"))
+                return t
+        return fallback
 
     def _apply_with_test(
         self,
