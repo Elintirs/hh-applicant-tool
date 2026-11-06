@@ -1,0 +1,220 @@
+/*
+ * Токены дизайн-системы панели. Три уровня:
+ *   1. палитра (--gray-*, --blue-* ...) - сырые значения, в компонентах не используются;
+ *   2. семантика (--color-*, --space-*, --radius-* ...) - смысл, их и берут компоненты;
+ *   3. компонентные (--button-*, --field-* ...) - там, где у компонента своё решение.
+ * Тёмная тема переопределяет только семантический уровень.
+ */
+
+:root {
+  /* ---- палитра ---- */
+  --gray-0: #ffffff;
+  --gray-25: #fbfbfc;
+  --gray-50: #f5f6f8;
+  --gray-100: #eceef2;
+  --gray-200: #dfe2e8;
+  --gray-300: #c8cdd6;
+  --gray-400: #9aa1ae;
+  --gray-500: #626977;
+  --gray-600: #525865;
+  --gray-700: #3b404a;
+  --gray-800: #262a31;
+  --gray-850: #1d2026;
+  --gray-900: #16181d;
+  --gray-950: #0f1114;
+
+  --blue-50: #eef3ff;
+  --blue-100: #dbe5ff;
+  --blue-300: #8fa9f5;
+  --blue-400: #6d8cf0;
+  --blue-500: #4a6ae6;
+  --blue-600: #3a56cf;
+  --blue-700: #2f45a8;
+  --blue-900: #1c2650;
+
+  --green-50: #eaf7ef;
+  --green-400: #4cc27c;
+  --green-600: #1f8a4c;
+  --green-900: #12301f;
+
+  --amber-50: #fff6e5;
+  --amber-400: #f2b544;
+  --amber-700: #8a5a00;
+  --amber-900: #3a2a08;
+
+  --red-50: #fdeeee;
+  --red-400: #f07272;
+  --red-600: #c93636;
+  --red-900: #3d1717;
+
+  --violet-50: #f3eefe;
+  --violet-400: #a58bf2;
+  --violet-600: #6b46d6;
+  --violet-900: #2a1f4d;
+
+  /* ---- типографика ---- */
+  --font-sans: -apple-system, BlinkMacSystemFont, "Segoe UI", "Inter", Roboto, "Helvetica Neue", Arial, sans-serif;
+  --font-mono: ui-monospace, "SF Mono", "JetBrains Mono", Menlo, Consolas, "Liberation Mono", monospace;
+
+  --font-size-xs: 0.75rem;   /* 12 */
+  --font-size-sm: 0.8125rem; /* 13 */
+  --font-size-md: 0.875rem;  /* 14 - базовый */
+  --font-size-lg: 1rem;      /* 16 */
+  --font-size-xl: 1.25rem;   /* 20 */
+  --font-size-2xl: 1.625rem; /* 26 */
+
+  --font-weight-regular: 400;
+  --font-weight-medium: 500;
+  --font-weight-semibold: 600;
+  --line-height-tight: 1.25;
+  --line-height-normal: 1.5;
+
+  /* ---- отступы: шкала на 4px ---- */
+  --space-1: 4px;
+  --space-2: 8px;
+  --space-3: 12px;
+  --space-4: 16px;
+  --space-5: 20px;
+  --space-6: 24px;
+  --space-8: 32px;
+  --space-10: 40px;
+  --space-12: 48px;
+
+  /* ---- формы ---- */
+  --radius-sm: 6px;
+  --radius-md: 8px;
+  --radius-lg: 12px;
+  --radius-full: 999px;
+
+  --size-control: 36px;
+  --size-control-sm: 30px;
+  --size-sidebar: 236px;
+  --size-content-max: 1120px;
+
+  /* ---- движение ---- */
+  --motion-fast: 120ms;
+  --motion-normal: 200ms;
+  --motion-easing: cubic-bezier(0.2, 0, 0, 1);
+
+  /* ---- семантика: светлая тема ---- */
+  color-scheme: light;
+  --color-bg: var(--gray-50);
+  --color-surface: var(--gray-0);
+  --color-surface-sunken: var(--gray-50);
+  --color-surface-raised: var(--gray-0);
+  --color-surface-hover: var(--gray-100);
+  --color-border: var(--gray-200);
+  --color-border-strong: var(--gray-300);
+
+  --color-text: var(--gray-900);
+  --color-text-muted: var(--gray-600);
+  --color-text-subtle: var(--gray-500);
+  --color-text-inverse: var(--gray-0);
+
+  --color-accent: var(--blue-600);
+  --color-accent-hover: var(--blue-700);
+  --color-accent-soft: var(--blue-50);
+  --color-accent-text: var(--blue-700);
+  --color-focus: var(--blue-500);
+
+  --color-success: var(--green-600);
+  --color-success-soft: var(--green-50);
+  --color-warning: var(--amber-700);
+  --color-warning-soft: var(--amber-50);
+  --color-danger: var(--red-600);
+  --color-danger-soft: var(--red-50);
+  --color-info: var(--violet-600);
+  --color-info-soft: var(--violet-50);
+
+  --color-log-bg: var(--gray-900);
+  --color-log-text: #e3e6ec;
+
+  --shadow-sm: 0 1px 2px rgb(16 24 40 / 0.05);
+  --shadow-md: 0 4px 16px rgb(16 24 40 / 0.08), 0 1px 3px rgb(16 24 40 / 0.06);
+  --shadow-lg: 0 16px 48px rgb(16 24 40 / 0.18);
+
+  /* ---- компонентные ---- */
+  --button-primary-bg: var(--color-accent);
+  --button-primary-bg-hover: var(--color-accent-hover);
+  --button-primary-text: var(--color-text-inverse);
+  --field-bg: var(--color-surface);
+  --field-border: var(--color-border-strong);
+  --nav-item-active-bg: var(--color-accent-soft);
+  --nav-item-active-text: var(--color-accent-text);
+}
+
+/* Тёмная тема: по системной настройке, если пользователь не выбрал светлую */
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme="light"]) {
+    color-scheme: dark;
+    --color-bg: var(--gray-950);
+    --color-surface: var(--gray-900);
+    --color-surface-sunken: var(--gray-950);
+    --color-surface-raised: var(--gray-850);
+    --color-surface-hover: var(--gray-800);
+    --color-border: var(--gray-800);
+    --color-border-strong: var(--gray-700);
+    --color-text: #eceef2;
+    --color-text-muted: var(--gray-400);
+    --color-text-subtle: #8a909c;
+    --color-text-inverse: var(--gray-950);
+    --color-accent: var(--blue-400);
+    --color-accent-hover: var(--blue-300);
+    --color-accent-soft: var(--blue-900);
+    --color-accent-text: var(--blue-300);
+    --color-focus: var(--blue-400);
+    --color-success: var(--green-400);
+    --color-success-soft: var(--green-900);
+    --color-warning: var(--amber-400);
+    --color-warning-soft: var(--amber-900);
+    --color-danger: var(--red-400);
+    --color-danger-soft: var(--red-900);
+    --color-info: var(--violet-400);
+    --color-info-soft: var(--violet-900);
+    --color-log-bg: #0b0c0f;
+    --shadow-sm: 0 1px 2px rgb(0 0 0 / 0.4);
+    --shadow-md: 0 6px 20px rgb(0 0 0 / 0.45);
+    --shadow-lg: 0 20px 56px rgb(0 0 0 / 0.6);
+    --button-primary-text: var(--gray-950);
+  }
+}
+
+:root[data-theme="dark"] {
+  color-scheme: dark;
+  --color-bg: var(--gray-950);
+  --color-surface: var(--gray-900);
+  --color-surface-sunken: var(--gray-950);
+  --color-surface-raised: var(--gray-850);
+  --color-surface-hover: var(--gray-800);
+  --color-border: var(--gray-800);
+  --color-border-strong: var(--gray-700);
+  --color-text: #eceef2;
+  --color-text-muted: var(--gray-400);
+  --color-text-subtle: #8a909c;
+  --color-text-inverse: var(--gray-950);
+  --color-accent: var(--blue-400);
+  --color-accent-hover: var(--blue-300);
+  --color-accent-soft: var(--blue-900);
+  --color-accent-text: var(--blue-300);
+  --color-focus: var(--blue-400);
+  --color-success: var(--green-400);
+  --color-success-soft: var(--green-900);
+  --color-warning: var(--amber-400);
+  --color-warning-soft: var(--amber-900);
+  --color-danger: var(--red-400);
+  --color-danger-soft: var(--red-900);
+  --color-info: var(--violet-400);
+  --color-info-soft: var(--violet-900);
+  --color-log-bg: #0b0c0f;
+  --shadow-sm: 0 1px 2px rgb(0 0 0 / 0.4);
+  --shadow-md: 0 6px 20px rgb(0 0 0 / 0.45);
+  --shadow-lg: 0 20px 56px rgb(0 0 0 / 0.6);
+  --button-primary-text: var(--gray-950);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  :root {
+    --motion-fast: 0ms;
+    --motion-normal: 0ms;
+  }
+}
