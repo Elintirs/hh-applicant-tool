@@ -24,6 +24,9 @@ services:
     build: .
     image: hh-applicant-tool:latest
     container_name: hh-panel
+    # Постоянное имя хоста: оно входит в сертификат, иначе после каждого
+    # пересоздания контейнера сертификат менялся бы и браузер ругался снова
+    hostname: hh-panel
     command: ["panel", "--host", "0.0.0.0", "--port", "8090"]
     ports:
       # Порт открыт в сеть: панель сама включает HTTPS и токен
