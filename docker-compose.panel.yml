@@ -14,7 +14,9 @@ services:
     build: .
     image: hh-applicant-tool:latest
     container_name: hh-panel
-    command: ["panel", "--host", "0.0.0.0", "--port", "8090"]
+    # Порт открыт только на 127.0.0.1 хоста, поэтому без HTTPS: самоподписанный
+    # сертификат на localhost браузеры встречают предупреждением
+    command: ["panel", "--host", "0.0.0.0", "--port", "8090", "--no-tls"]
     ports:
       - "127.0.0.1:8090:8090"
     volumes:
