@@ -1,0 +1,56 @@
+# Панель и локальные нейронки на домашнем ПК, вход с ноутбука по сети.
+#
+#   HH_PANEL_PUBLIC_HOSTS=192.168.0.104 docker compose -f docker-compose.pc.yml up -d --build
+#
+# Откройте на ноутбуке https://<IP ПК>:8090. Токен для входа появится в логе
+# (docker compose -f docker-compose.pc.yml logs panel) и в ./config/panel-token.txt.
+#
+# Видеокарта NVIDIA: нужен NVIDIA Container Toolkit (Linux) или Docker Desktop
+# с WSL2 (Windows). Без видеокарты уберите блок deploy у ollama: модели
+# поедут на процессоре, медленно, но работать будут.
+#
+# Windows без Docker: scripts/windows/install-panel.ps1.
+services:
+  panel:
+    build: .
+    image: hh-applicant-tool:latest
+    container_name: hh-panel
+    command: ["panel", "--host", "0.0.0.0", "--port", "8090"]
+    ports:
+      # Порт открыт в домашнюю сеть: панель сама включает HTTPS и токен
+      - "8090:8090"
+    volumes:
+      - ./config:/config
+      - /etc/localtime:/etc/localtime:ro
+    environment:
+      - CONFIG_DIR=/config
+      - OLLAMA_URL=http://ollama:11434
+      # IP этого ПК в сети: попадёт в сертификат и в подсказку «как открыть»
+      - HH_PANEL_PUBLIC_HOSTS=${HH_PANEL_PUBLIC_HOSTS:-}
+      # - HH_PANEL_TOKEN=свой-длинный-токен
+      # - TZ=Europe/Moscow
+    depends_on:
+      - ollama
+    restart: unless-stopped
+
+  ollama:
+    image: ollama/ollama:latest
+    container_name: hh-ollama
+    volumes:
+      # Модели весят гигабайты: держим их в отдельном томе
+      - ollama:/root/.ollama
+    environment:
+      # Держать модель в видеопамяти 30 минут после запроса
+      - OLLAMA_KEEP_ALIVE=30m
+    deploy:
+      resources:
+        reservations:
+          devices:
+            - driver: nvidia
+              count: all
+              capabilities: [gpu]
+    restart: unless-stopped
+    # Наружу не публикуем: панель и утилита ходят в ollama по имени сервиса
+
+volumes:
+  ollama:
