@@ -10,3 +10,4 @@ docs
 *.egg-info
 dist
 build
+config

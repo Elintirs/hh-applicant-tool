@@ -89,3 +89,6 @@ jadx_out/
 models/
 docker-compose.yml
 /Session.vim
+
+# Конфиг панели в Docker: токены hh и панели
+/config/
