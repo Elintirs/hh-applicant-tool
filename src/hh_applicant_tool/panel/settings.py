@@ -265,7 +265,9 @@ class Settings:
 
     def _effective_for_test(self, key: str, values: dict[str, Any]) -> dict[str, Any]:
         cfg = self._config()
-        base = cfg.get_section("openai.default") if key != "default" else {}
+        # Сохранённая основная модель плюс то, что сейчас в форме: форма
+        # важнее, а пустые поля берутся из конфига
+        base = cfg.get_section("openai.default")
         own = self._clean_ai_values(values or {})
         settings = {**base, **own}
         if not settings.get("base_url"):
