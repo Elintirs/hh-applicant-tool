@@ -16,6 +16,7 @@ import mimetypes
 import re
 import secrets
 import shlex
+import socket
 import threading
 import time
 from dataclasses import dataclass
@@ -33,7 +34,9 @@ from ..api.errors import ApiError as HHApiError
 from ..errors import OperationError
 from ..utils.package import PACKAGE_NAME, get_package_version, parse_version
 from .hh import CaptchaBroker, HHService, friendly_error
+from . import remote
 from .introspect import build_schema, operation_title
+from .ollama import Ollama, OllamaError
 from .runner import FINAL, JobManager
 from .scheduler import Scheduler, ScheduleError
 from .settings import AI_TASK_KEYS, Settings, SettingsError
@@ -69,8 +72,17 @@ class PanelApp:
     def __init__(self, base_dir: Path, profile: str = ".", token: str | None = None) -> None:
         self.base_dir = base_dir
         self.token = token or None
-        self.secret = secrets.token_bytes(32)
         self.store = PanelStore(base_dir)
+        # Секрет сессий храним, чтобы вход на других устройствах переживал
+        # перезапуск панели. Смена секрета разлогинивает все устройства
+        secret = self.store.get("session_secret")
+        if not secret:
+            secret = secrets.token_hex(32)
+            self.store.set("session_secret", secret)
+        self.secret = bytes.fromhex(secret)
+        self.ollama = Ollama(self.store)
+        # Заполняет serve(): как панель доступна снаружи
+        self.net: dict[str, Any] = {"host": "127.0.0.1", "port": 0, "tls": False}
         self.jobs = JobManager(self.store, base_dir)
         self.scheduler = Scheduler(self.store, self.jobs)
         self.broker = CaptchaBroker()
@@ -152,6 +164,11 @@ class PanelApp:
 
     def check_token(self, value: str) -> bool:
         return bool(self.token) and hmac.compare_digest(value.encode(), self.token.encode())
+
+    def logout_everywhere(self) -> None:
+        secret = secrets.token_hex(32)
+        self.store.set("session_secret", secret)
+        self.secret = bytes.fromhex(secret)
 
     # ---- обновления ----------------------------------------------------
 
@@ -312,6 +329,8 @@ def make_handler(app: PanelApp) -> type[BaseHTTPRequestHandler]:
                 self._error(str(ex), 400)
             except (RuntimeError, OperationError) as ex:
                 self._error(str(ex), 409)
+            except OllamaError as ex:
+                self._error(str(ex), 502)
             except HHApiError as ex:
                 self._error(friendly_error(ex), 502)
             except AIError as ex:
@@ -346,7 +365,8 @@ def make_handler(app: PanelApp) -> type[BaseHTTPRequestHandler]:
             if not app.check_token(str(body.get("token") or "")):
                 time.sleep(1)
                 raise ApiError("Неверный токен", 401)
-            cookie = f"{COOKIE_NAME}={app.session_value()}; Path=/; HttpOnly; SameSite=Strict; Max-Age=2592000"
+            secure = "; Secure" if app.net.get("tls") else ""
+            cookie = f"{COOKIE_NAME}={app.session_value()}; Path=/; HttpOnly; SameSite=Strict; Max-Age=31536000{secure}"
             self.json({"ok": True}, extra={"Set-Cookie": cookie})
 
         def stream_job(self, job_id: str, offset: int) -> None:
@@ -412,6 +432,74 @@ def make_handler(app: PanelApp) -> type[BaseHTTPRequestHandler]:
     @route("GET", "updates")
     def updates(h: Handler) -> None:
         h.json(app.check_updates(force=h.query.get("force") == "1"))
+
+    # ---- подключение с других устройств --------------------------------
+
+    @route("GET", "connection")
+    def connection(h: Handler) -> None:
+        net = app.net
+        scheme = "https" if net.get("tls") else "http"
+        hosts = net.get("public_hosts") or []
+        h.json({
+            **{k: v for k, v in net.items() if k != "token"},
+            "urls": [f"{scheme}://{x}:{net.get('public_port') or net['port']}" for x in hosts],
+            "token_required": bool(app.token),
+            "token_file": str(app.base_dir / remote.TOKEN_FILE) if app.token else None,
+        })
+
+    @route("POST", "connection/token")
+    def connection_token(h: Handler) -> None:
+        # Показываем токен только уже вошедшему: чтобы ввести его на маке
+        if not app.token:
+            raise ApiError("Токен не задан")
+        h.json({"token": app.token})
+
+    @route("POST", "connection/logout-all")
+    def connection_logout_all(h: Handler) -> None:
+        app.logout_everywhere()
+        h.json({"ok": True})
+
+    # ---- локальные модели (Ollama) ----------------------------------------
+
+    @route("GET", "ollama")
+    def ollama_status(h: Handler) -> None:
+        h.json(app.ollama.status())
+
+    @route("PUT", "ollama")
+    def ollama_url(h: Handler) -> None:
+        app.ollama.set_url(str(h.body().get("url") or ""))
+        h.json(app.ollama.status())
+
+    @route("POST", "ollama/pull")
+    def ollama_pull(h: Handler) -> None:
+        app.ollama.pull(str(h.body().get("name") or ""))
+        h.json({"pulls": app.ollama.pulls()})
+
+    @route("POST", "ollama/delete")
+    def ollama_delete(h: Handler) -> None:
+        app.ollama.delete(str(h.body().get("name") or ""))
+        h.json(app.ollama.status())
+
+    @route("POST", "ollama/use")
+    def ollama_use(h: Handler) -> None:
+        """Подставить локальную модель в задачи: основная или отдельные."""
+        body = h.body()
+        name = str(body.get("name") or "").strip()
+        tasks = body.get("tasks") or ["default"]
+        if not name or not isinstance(tasks, list):
+            raise ApiError("Укажите модель и задачи")
+        ctx = app.ctx()
+        current = ctx.settings.read_models()
+        sections = {}
+        for t in current["tasks"]:
+            if t["key"] in tasks:
+                vals = dict(t["values"])
+                vals.update({"base_url": app.ollama.url + "/v1", "model": name})
+                vals.pop("api_key", None)
+                sections[t["key"]] = vals
+        data = ctx.settings.save_models(sections)
+        ctx.service.reset()
+        h.json(data)
 
     # ---- профили и аккаунт ---------------------------------------------
 
@@ -821,13 +909,77 @@ def make_handler(app: PanelApp) -> type[BaseHTTPRequestHandler]:
 class PanelServer(ThreadingHTTPServer):
     daemon_threads = True
     allow_reuse_address = True
+    ssl_ctx = None
+
+    def finish_request(self, request, client_address):
+        if self.ssl_ctx is not None:
+            request.settimeout(15)
+            try:
+                first = request.recv(1, socket.MSG_PEEK)
+                if first and first != b"\x16":
+                    # Открыли http:// вместо https://: перенаправим, а не
+                    # оборвём соединение с непонятной ошибкой в браузере
+                    self._redirect_to_https(request)
+                    return
+                # Рукопожатие в потоке обработчика, а не в цикле приёма:
+                # медленный клиент не задержит остальных
+                request = self.ssl_ctx.wrap_socket(request, server_side=True)
+            except (OSError, ValueError):
+                return
+            request.settimeout(None)
+        super().finish_request(request, client_address)
+
+    def _redirect_to_https(self, sock) -> None:
+        try:
+            head = sock.recv(4096).decode("latin-1", "replace")
+            host = next((ln.split(":", 1)[1].strip() for ln in head.split("\r\n") if ln.lower().startswith("host:")), "")
+            path = head.split(" ", 2)[1] if head.count(" ") >= 2 else "/"
+            loc = f"https://{host}{path}" if host else ""
+            body = "Панель работает по HTTPS. Откройте адрес с https://".encode()
+            resp = (
+                "HTTP/1.1 301 Moved Permanently\r\n"
+                + (f"Location: {loc}\r\n" if loc else "")
+                + f"Content-Type: text/plain; charset=utf-8\r\nContent-Length: {len(body)}\r\nConnection: close\r\n\r\n"
+            ).encode("latin-1") + body
+            sock.sendall(resp)
+        except OSError:
+            pass
+        finally:
+            try:
+                sock.close()
+            except OSError:
+                pass
+
+    def handle_error(self, request, client_address):
+        pass
 
 
-def serve(base_dir: Path, profile: str, host: str, port: int, token: str | None) -> None:
+def serve(
+    base_dir: Path,
+    profile: str,
+    host: str,
+    port: int,
+    token: str | None,
+    *,
+    tls: bool = False,
+    public_hosts: list[str] | None = None,
+    public_port: int | None = None,
+) -> None:
     app = PanelApp(base_dir, profile, token)
     server = PanelServer((host, port), make_handler(app))
+    hosts = list(dict.fromkeys([*(public_hosts or []), *([] if remote.is_local(host) else remote.lan_addresses())]))
+    app.net = {"host": host, "port": port, "public_port": public_port, "tls": tls, "public_hosts": hosts, "remote": not remote.is_local(host)}
+    if tls:
+        cert, key = remote.ensure_certificate(base_dir, hosts)
+        server.ssl_ctx = remote.ssl_context(cert, key)
+        app.net["fingerprint"] = remote.fingerprint(cert)
     app.scheduler.start()
-    print(f"Панель: http://{'localhost' if host in ('0.0.0.0', '::', '127.0.0.1') else host}:{port}", flush=True)
+    scheme = "https" if tls else "http"
+    print(f"Панель: {scheme}://localhost:{public_port or port}", flush=True)
+    for x in hosts:
+        print(f"С других устройств: {scheme}://{x}:{public_port or port}", flush=True)
+    if tls:
+        print(f"Отпечаток сертификата: {app.net['fingerprint']}", flush=True)
     print(f"Конфиг: {base_dir}", flush=True)
     try:
         server.serve_forever()

@@ -529,3 +529,8 @@ details.disclosure > summary:hover { color: var(--color-text); }
   .kpi { padding: var(--space-3) var(--space-4); }
   .kpi-value { font-size: var(--font-size-xl); }
 }
+
+/* ===== Подключение ===== */
+.fingerprint { display: block; word-break: break-all; font-size: var(--font-size-xs); }
+.steps { padding-left: 1.2em; margin: 0; }
+.list-flush .list-item { padding-left: 0; padding-right: 0; flex-wrap: wrap; }

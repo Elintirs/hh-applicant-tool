@@ -2,6 +2,7 @@ import { get, put, post } from "../api.js";
 import {
   h, mount, button, field, input, toast, busy, skeleton, errorState, pageHeader, callout, icon, saveBar,
 } from "../ui.js";
+import { localModelsCard } from "./local-models.js";
 
 const FIELDS = [
   { key: "base_url", label: "Адрес API", help: "Часть адреса до /chat/completions. Для Ollama в Docker: http://<IP хоста>:11434/v1.", example: "https://api.openai.com/v1", wide: true },
@@ -44,6 +45,13 @@ export default async function models(root) {
     onReset: () => { resetDraft(); render(); },
   });
   const changed = () => bar.set(true);
+  // Карточка Ollama живёт дольше перерисовок: у неё свой опрос загрузок
+  const local = localModelsCard({
+    onApplied: async () => {
+      if (bar.dirty) { toast("Модель назначена. Сохраните или отмените свои правки, чтобы увидеть её в полях", "info"); return; }
+      data = await get("models"); resetDraft(); render();
+    },
+  });
 
   // Поле настройки. Для задачи (не основной) пустое поле наследует значение
   // основной модели, и это значение видно прямо в поле как подсказка
@@ -147,7 +155,8 @@ export default async function models(root) {
     mount(root,
       pageHeader("Модели", "Основная модель работает везде. Для отдельных задач можно подключить другую, например дешёвую для фильтра и умную для писем."),
       h("div", { class: "stack" },
-        !data.configured ? callout("info", h("p", null, "AI ещё не настроен. Укажите адрес API основной модели, и утилита начнёт писать письма, фильтровать вакансии и отвечать в чатах.")) : null,
+        !data.configured ? callout("info", h("p", null, "AI ещё не настроен. Скачайте локальную модель ниже или укажите адрес API основной модели, и утилита начнёт писать письма, фильтровать вакансии и отвечать в чатах.")) : null,
+        local,
         h("section", { class: "card", "aria-labelledby": "main-model" },
           h("div", { class: "card-header" }, h("div", null, h("h3", { id: "main-model" }, "Основная модель"), h("p", { class: "card-hint" }, mainTask.hint))),
           h("div", { class: "card-body" }, form(mainTask))),
@@ -160,5 +169,5 @@ export default async function models(root) {
   }
 
   render();
-  return () => { ac.abort(); bar.destroy(); };
+  return () => { ac.abort(); bar.destroy(); local.destroy(); };
 }

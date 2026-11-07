@@ -70,6 +70,63 @@ async function logTab(host) {
   return () => clearInterval(timer);
 }
 
+// Как открыть панель с ноутбука, если она крутится на домашнем ПК
+async function connectionTab(host) {
+  mount(host, skeleton(4));
+  let c;
+  try { c = await get("connection"); } catch (err) { mount(host, errorState(err, () => connectionTab(host))); return; }
+  if (!c.remote) {
+    mount(host, callout("info",
+      h("p", null, h("strong", null, "Панель открыта только на этом компьютере.")),
+      h("p", null, "Чтобы заходить с ноутбука или телефона, запустите её так: ", h("code", null, "hh-applicant-tool panel --host 0.0.0.0"),
+        ". Панель сама включит HTTPS и токен доступа. На Windows это делает скрипт установки, в Docker файл docker-compose.pc.yml.")));
+    return;
+  }
+  const tokenBox = h("div", { class: "row" });
+  const showToken = button("Показать токен", { size: "sm", iconName: "key" });
+  showToken.addEventListener("click", () => busy(showToken, async () => {
+    try {
+      const { token } = await post("connection/token");
+      mount(tokenBox, h("code", { class: "mono" }, token), button("", { size: "sm", variant: "ghost", iconName: "copy", title: "Копировать токен", onClick: () => copyText(token) }));
+    } catch (err) { toast(err.message, "error"); }
+  }));
+  const logoutAll = button("Выйти на всех устройствах", { variant: "danger", iconName: "logout" });
+  logoutAll.addEventListener("click", async () => {
+    if (!(await confirmDialog({ title: "Выйти на всех устройствах?", text: "Везде, включая этот браузер, нужно будет снова ввести токен. Задачи и расписание продолжат работать.", confirm: "Выйти везде", danger: true }))) return;
+    try { await post("connection/logout-all"); location.reload(); } catch (err) { toast(err.message, "error"); }
+  });
+  mount(host,
+    h("section", { class: "card" },
+      h("div", { class: "card-header" }, h("div", null, h("h3", null, "Адреса для входа"), h("p", { class: "card-hint" }, "Откройте один из них на ноутбуке в той же сети."))),
+      c.urls.length
+        ? h("ul", { class: "list" }, c.urls.map((u) => h("li", { class: "list-item" },
+            h("code", { class: "mono grow" }, u),
+            button("", { size: "sm", variant: "ghost", iconName: "copy", title: "Копировать адрес", onClick: () => copyText(u) }))))
+        : h("div", { class: "card-body" }, h("p", { class: "muted" }, "Адрес в сети не определился. Задайте его флагом --public-host или переменной HH_PANEL_PUBLIC_HOSTS."))),
+    h("section", { class: "card" },
+      h("div", { class: "card-header" }, h("h3", null, "Защита")),
+      h("div", { class: "card-body stack" },
+        h("div", { class: "row-between" },
+          h("div", null, h("div", { class: "list-item-title" }, "HTTPS"), h("p", { class: "subtle" }, c.tls ? "Трафик шифруется. Сертификат самоподписанный: при первом входе браузер предупредит, это ожидаемо." : "Выключен: токен и cookie идут по сети открытым текстом.")),
+          h("span", { class: `badge ${c.tls ? "badge-success" : "badge-danger"}` }, c.tls ? "Включён" : "Выключен")),
+        c.fingerprint ? h("details", { class: "disclosure" },
+          h("summary", null, "Отпечаток сертификата"),
+          h("p", { class: "subtle" }, "Сверьте с тем, что покажет браузер в сведениях о сертификате: так вы убедитесь, что подключились к своему ПК."),
+          h("code", { class: "mono fingerprint" }, c.fingerprint)) : null,
+        h("div", { class: "row-between" },
+          h("div", null, h("div", { class: "list-item-title" }, "Токен доступа"), h("p", { class: "subtle" }, "Вводится один раз на каждом устройстве, браузер запоминает вход на год.", c.token_file ? ` Хранится в ${c.token_file}.` : "")),
+          c.token_required ? showToken : h("span", { class: "badge badge-danger" }, "Не задан")),
+        tokenBox,
+        h("div", null, logoutAll))),
+    h("section", { class: "card" },
+      h("div", { class: "card-header" }, h("h3", null, "Как открыть с мака")),
+      h("div", { class: "card-body" }, h("ol", { class: "stack-sm steps" },
+        h("li", null, "Откройте адрес выше в браузере."),
+        h("li", null, "Браузер предупредит о сертификате. Safari: «Показать подробности», затем «посетить этот веб-сайт». Chrome: «Дополнительные», затем «Перейти на сайт»."),
+        h("li", null, "Введите токен. Дальше панель работает как обычный сайт: можно добавить в Dock через «Файл → Добавить в Dock» в Safari."),
+        h("li", null, "Вне дома подключайтесь через свой VPN в домашнюю сеть, открывать порт в интернет не нужно.")))));
+}
+
 async function updatesTab(host, force = false) {
   mount(host, skeleton(3));
   let u;
@@ -85,19 +142,20 @@ async function updatesTab(host, force = false) {
 }
 
 export default async function system(root, ctx) {
-  let tab = ctx.params.get("tab") || "profiles";
+  let tab = ctx.params.get("tab") || "connection";
   const host = h("div", { class: "stack" });
   let cleanup = null;
   const show = async () => {
     if (cleanup) { cleanup(); cleanup = null; }
     if (tab === "profiles") await profilesTab(host, ctx);
     else if (tab === "log") cleanup = await logTab(host);
+    else if (tab === "connection") await connectionTab(host);
     else await updatesTab(host);
   };
   mount(root,
-    pageHeader("Система", "Профили аккаунтов, лог утилиты и обновления."),
+    pageHeader("Система", "Доступ с других устройств, профили аккаунтов, лог утилиты и обновления."),
     h("div", { class: "stack" },
-      h("div", null, segmented([["profiles", "Профили"], ["log", "Лог"], ["updates", "Обновления"]], tab, (t) => { tab = t; history.replaceState(null, "", `#/system?tab=${t}`); show(); }, "Раздел")),
+      h("div", null, segmented([["connection", "Подключение"], ["profiles", "Профили"], ["log", "Лог"], ["updates", "Обновления"]], tab, (t) => { tab = t; history.replaceState(null, "", `#/system?tab=${t}`); show(); }, "Раздел")),
       host));
   await show();
   return () => { if (cleanup) cleanup(); };
