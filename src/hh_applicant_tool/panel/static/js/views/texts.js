@@ -1,6 +1,6 @@
 import { get, put, post } from "../api.js";
 import {
-  h, mount, button, field, input, textarea, toast, busy, skeleton, errorState, pageHeader,
+  h, mount, button, field, input, textarea, toast, busy, skeleton, errorState, pageHeader, icon,
   segmented, saveBar, switchControl,
 } from "../ui.js";
 import letters from "./letters.js";
@@ -67,7 +67,7 @@ async function textsTab(host, tab) {
         h("div", null, h("div", { class: "row" }, h("h3", null, item.title), custom), h("p", { class: "card-hint" }, item.hint, " ", h("code", null, item.key))),
         button("Вернуть по умолчанию", { size: "sm", variant: "ghost", iconName: "undo", onClick: () => { ta.value = item.default; ta.dispatchEvent(new Event("input")); } })),
       h("div", { class: "card-body stack" }, ta,
-        h("details", { class: "disclosure" }, h("summary", null, "Как будет выглядеть"), h("p", { class: "subtle" }, "Неизвестные здесь данные показаны как ‹имя›: их подставит утилита."), pv.box)));
+        h("details", { class: "disclosure" }, h("summary", null, (() => { const c = icon("chevron", 16); c.classList.add("chev"); return c; })(), "Как будет выглядеть"), h("p", { class: "subtle" }, "Неизвестные здесь данные показаны как ‹имя›: их подставит утилита."), pv.box)));
   });
 
   let mail = null;

@@ -50,7 +50,7 @@ async function searchTab(host, ctx) {
   const resultsHost = h("div", { class: "stack" });
   const searchInput = input({ type: "search", value: state.values.text || "", placeholder: "Должность, навыки или компания", "aria-label": "Что ищем" });
   searchInput.addEventListener("input", () => { state.values.text = searchInput.value || undefined; });
-  const resumeSel = select(published.map((r) => [r.id, r.title]), { value: state.resume_id, "aria-label": "Резюме", onchange: (e) => { state.resume_id = e.target.value; } });
+  const resumeSel = select(published.map((r) => [r.id, r.title]), { value: state.resume_id, "aria-label": "Резюме", title: published.find((r) => r.id === state.resume_id)?.title, onchange: (e) => { state.resume_id = e.target.value; e.target.title = e.target.selectedOptions[0]?.textContent || ""; } });
   const setter = (dest) => (v) => { if (v === undefined) delete state.values[dest]; else state.values[dest] = v; };
   const lookups = {};
   const activeExtra = () => extra.filter((a) => state.values[a.dest] !== undefined).length;
@@ -165,7 +165,8 @@ async function searchTab(host, ctx) {
   const searchBtn = button("Найти", { variant: "primary", iconName: "search", type: "submit" });
   const form = h("form", { class: "card", role: "search" },
     h("div", { class: "card-body stack" },
-      h("div", { class: "search-bar" }, searchInput, resumeSel, searchBtn),
+      // С одним резюме выбирать нечего: поле только съедает место и обрезает название
+      h("div", { class: `search-bar${published.length > 1 ? "" : " search-bar-single"}` }, searchInput, published.length > 1 ? resumeSel : null, searchBtn),
       h("details", { class: "disclosure", open: activeExtra() > 0 || undefined },
         h("summary", null, chev(), "Фильтры", activeExtra() ? h("span", { class: "badge badge-accent plain" }, String(activeExtra())) : null),
         h("div", { class: "form-grid" }, [...filterDefs, ...extra].map((d) => control(d, state.values[d.dest], setter(d.dest), lookups))))));

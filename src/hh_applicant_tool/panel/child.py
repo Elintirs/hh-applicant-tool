@@ -45,7 +45,10 @@ def panel_input(prompt: object = "") -> str:
     text = str(prompt)
     sys.stdout.write(text)
     sys.stdout.flush()
-    emit({"kind": "input", "prompt": text.strip(), "secret": "парол" in text.lower()})
+    low = text.lower()
+    # Пароль и одноразовый код не попадают в лог задачи
+    secret = "парол" in low or "код" in low
+    emit({"kind": "input", "prompt": text.strip(), "secret": secret})
     answer = _read_answer()
     emit({"kind": "answered"})
     return answer

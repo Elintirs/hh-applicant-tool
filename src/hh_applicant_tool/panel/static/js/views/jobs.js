@@ -47,7 +47,7 @@ export default async function jobs(root, ctx) {
     },
       h("span", { class: "truncate list-item-title" }, j.title || j.args[0]),
       statusBadge(j.status),
-      h("span", { class: "cmd truncate" }, j.args.join(" ")),
+      h("span", { class: "cmd truncate" }, (j.command || j.args.join(" ")).replace(/^hh-applicant-tool /, "")),
       h("span", { class: "subtle" }, `${sourceLabel(j)} · ${relTime(j.created_at)}${j.queue_position ? ` · место в очереди: ${j.queue_position}` : ""}`),
     )));
   }

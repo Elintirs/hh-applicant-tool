@@ -10,6 +10,7 @@ from __future__ import annotations
 
 import logging
 import os
+import re
 import shlex
 import signal
 import subprocess
@@ -25,6 +26,21 @@ from typing import Any
 
 from .child import MARK_END, MARK_START
 from .store import PanelStore
+
+
+_PHONE_RE = re.compile(r"^\+?\d[\d\s()-]{8,}\d$")
+_EMAIL_RE = re.compile(r"^([^@\s]{1,2})[^@\s]*(@.+)$")
+
+
+def mask_contact(value: str) -> str:
+    """Телефон и почта в аргументах (вход в hh.ru) не светятся в списке задач."""
+    if _PHONE_RE.match(value):
+        digits = re.sub(r"\D", "", value)
+        return ("+" if value.startswith("+") else "") + "•" * (len(digits) - 2) + digits[-2:]
+    m = _EMAIL_RE.match(value)
+    if m:
+        return m.group(1) + "•••" + m.group(2)
+    return value
 
 logger = logging.getLogger(__name__)
 
@@ -71,7 +87,8 @@ class Job:
 
     @property
     def command(self) -> str:
-        return shlex.join(["hh-applicant-tool", *self.args])
+        """Команда для показа: телефон и почта скрыты, повтор берёт args."""
+        return shlex.join(["hh-applicant-tool", *(mask_contact(a) for a in self.args)])
 
     @property
     def output_size(self) -> int:

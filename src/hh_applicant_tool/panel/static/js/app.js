@@ -120,6 +120,8 @@ async function refreshAccount() {
   state.account = profile.status === "fulfilled" ? profile.value : { error: profile.reason.message };
   state.profiles = profiles.status === "fulfilled" ? profiles.value : null;
   renderAccount();
+  // Тот же счётчик, что «Непрочитанные чаты» на обзоре: чаты, а не сообщения
+  setUnreadChats(state.account?.me?.counters?.unread_negotiations ?? 0);
 }
 
 // ---- Каркас ----
@@ -214,7 +216,7 @@ async function refreshUpdates() {
   } catch { /* ничего */ }
 }
 
-export function setUnreadChats(n) { setCount("chats", n, "непрочитанных чатов"); }
+export function setUnreadChats(n) { setCount("chats", n, "чатов с новыми сообщениями"); }
 
 // ---- Вход в панель по токену ----
 function loginScreen() {

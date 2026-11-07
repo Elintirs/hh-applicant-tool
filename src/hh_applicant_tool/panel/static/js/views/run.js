@@ -84,8 +84,14 @@ function isDry(vals) {
 // Один контрол для аргумента. lookups: списки резюме и шаблонов писем
 export function control(def, value, onChange, lookups) {
   const label = def.help ? def.help.split(/[.(]/)[0].trim() : def.dest;
-  const shortLabel = label.length > 70 ? label.slice(0, 67) + "…" : label;
-  const help = def.help && def.help.length > shortLabel.length ? def.help : undefined;
+  const shortLabel = label.length > 90 ? label.slice(0, 87) + "…" : label;
+  // Подсказка не повторяет название поля: показываем только то, что после первой фразы
+  let help;
+  if (def.help && shortLabel !== label) help = def.help;
+  else if (def.help) {
+    const rest = def.help.slice(label.length).replace(/^[\s.]+/, "").trim();
+    help = rest.length > 1 ? rest.charAt(0).toUpperCase() + rest.slice(1) : undefined;
+  }
   const fieldOpts = { label: shortLabel, flag: def.flag || def.dest, help };
 
   if (def.kind === "flag" || def.kind === "flag_false" || def.kind === "bool") {

@@ -79,10 +79,12 @@ async function listTab(host, ctx) {
         h("div", { class: "list-item-main" },
           h("div", { class: "list-item-title truncate" }, n.vacancy_url ? h("a", { href: n.vacancy_url, target: "_blank", rel: "noopener noreferrer" }, n.vacancy) : n.vacancy),
           h("div", { class: "list-item-meta truncate" }, [n.employer, n.resume, n.updated_at ? relTime(Date.parse(n.updated_at) / 1000) : null].filter(Boolean).join(" · "))),
-        n.has_updates ? h("span", { class: "badge badge-accent" }, "Новое") : null,
-        n.viewed ? h("span", { class: "subtle nowrap", title: "Работодатель открыл отклик" }, icon("eye", 14)) : null,
-        h("span", { class: `badge ${KIND[n.state] ? "badge-" + KIND[n.state] : ""}` }, n.state_name),
-        button("", { size: "sm", variant: "ghost", iconName: n.state === "discard" ? "trash" : "x", title: n.state === "discard" ? "Убрать отказ" : "Отозвать отклик" }));
+        h("div", { class: "list-item-tags" },
+          n.has_updates ? h("span", { class: "badge badge-accent" }, "Новое") : null,
+          n.viewed ? h("span", { class: "subtle nowrap", title: "Работодатель открыл отклик" }, icon("eye", 14), h("span", { class: "sr-only" }, "Просмотрен")) : null,
+          // hh называет статус без ответа «Отклик», а вкладка фильтра «Без ответа»: одно слово везде
+          h("span", { class: `badge ${KIND[n.state] ? "badge-" + KIND[n.state] : ""}` }, n.state === "response" ? "Без ответа" : n.state_name)),
+        button("", { size: "sm", variant: "ghost", iconName: n.state === "discard" ? "trash" : "x", title: n.state === "discard" ? "Убрать отказ из списка" : "Отозвать отклик" }));
       li.lastChild.addEventListener("click", () => hide(n, li));
       return li;
     });
@@ -90,7 +92,7 @@ async function listTab(host, ctx) {
       h("div", { class: "row-between" },
         segmented(GROUPS, group, (g) => { group = g; render(); }, "Статус"),
         h("div", { class: "row" }, clearBtn,
-          segmented([["all", "Все"], ["active", "Активные"], ["archived", "Архив"]], status, (s) => { status = s; page = 0; load(); }, "Активность"))),
+          segmented([["all", "С архивом"], ["active", "Активные"], ["archived", "Архив"]], status, (s) => { status = s; page = 0; load(); }, "Активность"))),
       items.length ? h("div", { class: "card" }, h("ul", { class: "list" }, rows))
         : h("div", { class: "card" }, empty({ iconName: "inbox", title: "Здесь пусто", text: "На этой странице нет откликов с таким статусом." })),
       data.pages > 1 ? h("div", { class: "row-between" },

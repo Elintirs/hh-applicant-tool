@@ -3,7 +3,6 @@ import {
   h, mount, button, textarea, toast, busy, empty, skeleton, errorState, pageHeader, segmented,
   relTime, confirmDialog,
 } from "../ui.js";
-import { setUnreadChats } from "../app.js";
 
 const STATE = {
   INVITATION: ["Приглашение", "success"],
@@ -35,7 +34,6 @@ export default async function chats(root, ctx) {
     const data = await get(`chats?${q}`);
     list = more ? [...list, ...data.items] : data.items;
     next = data.next;
-    setUnreadChats(data.unread || 0);
     return data;
   }
 

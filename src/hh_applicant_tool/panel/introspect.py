@@ -30,7 +30,7 @@ OPERATION_TITLES = {
     "apply-vacancies": "Откликнуться на вакансии",
     "reply-chats": "Автоответчик в чатах",
     "update-resumes": "Поднять резюме",
-    "authorize": "Войти в аккаунт",
+    "authorize": "Вход в hh.ru",
     "whoami": "Кто я",
     "list-resumes": "Список резюме",
     "clear-negotiations": "Почистить отклики",

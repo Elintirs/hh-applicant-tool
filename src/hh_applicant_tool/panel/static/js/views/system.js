@@ -1,6 +1,6 @@
 import { get, post, put, del } from "../api.js";
 import {
-  h, mount, button, field, input, toast, busy, skeleton, errorState, pageHeader,
+  h, mount, button, field, input, toast, busy, skeleton, errorState, pageHeader, icon,
   segmented, callout, relTime, confirmDialog, switchControl, copyText,
 } from "../ui.js";
 
@@ -110,7 +110,7 @@ async function connectionTab(host) {
           h("div", null, h("div", { class: "list-item-title" }, "HTTPS"), h("p", { class: "subtle" }, c.tls ? "Трафик шифруется. Сертификат самоподписанный: при первом входе браузер предупредит, это ожидаемо." : "Выключен: токен и cookie идут по сети открытым текстом.")),
           h("span", { class: `badge ${c.tls ? "badge-success" : "badge-danger"}` }, c.tls ? "Включён" : "Выключен")),
         c.fingerprint ? h("details", { class: "disclosure" },
-          h("summary", null, "Отпечаток сертификата"),
+          h("summary", null, (() => { const c = icon("chevron", 16); c.classList.add("chev"); return c; })(), "Отпечаток сертификата"),
           h("p", { class: "subtle" }, "Сверьте с тем, что покажет браузер в сведениях о сертификате: так вы убедитесь, что подключились к своему ПК."),
           h("code", { class: "mono fingerprint" }, c.fingerprint)) : null,
         h("div", { class: "row-between" },

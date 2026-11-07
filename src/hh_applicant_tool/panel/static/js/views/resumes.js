@@ -114,17 +114,24 @@ export default async function resumes(root, ctx) {
       const currency = select([["RUR", "₽"], ["USD", "$"], ["EUR", "€"], ["KZT", "₸"], ["BYR", "Br"]], { value: draft.salary.currency, onchange: (e) => { draft.salary.currency = e.target.value; changed(); } });
       const about = textarea({ rows: 8, value: draft.skills, oninput: (e) => { draft.skills = e.target.value; changed(); } });
 
+      // Список грузится сам при первом раскрытии блока: отдельная кнопка была лишним шагом
       const viewsHost = h("div", null);
-      const loadViews = button("Показать", { size: "sm" });
-      loadViews.addEventListener("click", () => busy(loadViews, async () => {
+      let viewsLoaded = false;
+      const loadViews = async () => {
+        if (viewsLoaded) return;
+        viewsLoaded = true;
+        mount(viewsHost, h("p", { class: "subtle", role: "status" }, "Загружаем…"));
         try {
           const v = (await get(`resumes/${r.id}/views`)).items;
           mount(viewsHost, v.length ? h("ul", { class: "list" }, v.map((x) => h("li", { class: "list-item" },
             h("div", { class: "list-item-main" }, x.employer_url ? h("a", { href: x.employer_url, target: "_blank", rel: "noopener noreferrer" }, x.employer || "Работодатель") : (x.employer || "Работодатель")),
             h("span", { class: "subtle nowrap" }, x.created_at ? relTime(Date.parse(x.created_at) / 1000) : ""))))
             : h("p", { class: "muted" }, "Пока никто не смотрел."));
-        } catch (err) { toast(err.message, "error"); }
-      }));
+        } catch (err) {
+          viewsLoaded = false;
+          mount(viewsHost, h("p", { class: "muted" }, `Не удалось загрузить: ${err.message}. Сверните и раскройте блок, чтобы повторить.`));
+        }
+      };
 
       const ph = Object.entries(data.placeholders || {}).filter(([, v]) => v);
       mount(host,
@@ -134,7 +141,7 @@ export default async function resumes(root, ctx) {
           h("div", { class: "field" }, h("label", { class: "field-label", for: amount.id || (amount.id = `sal-${r.id}`) }, "Зарплата"), h("div", { class: "input-group" }, amount, currency))),
         h("div", { class: "field" }, h("span", { class: "field-label" }, "Ключевые навыки"), skillsEditor(draft.skill_set, (list) => { draft.skill_set = list; changed(); })),
         field({ label: "О себе", control: about }),
-        h("details", { class: "disclosure" }, h("summary", null, chev(), "Кто смотрел резюме"), h("div", { class: "stack-sm" }, loadViews, viewsHost)),
+        h("details", { class: "disclosure", ontoggle: (e) => { if (e.target.open) loadViews(); } }, h("summary", null, chev(), "Кто смотрел резюме"), viewsHost),
         ph.length ? h("details", { class: "disclosure" }, h("summary", null, chev(), "Плейсхолдеры для писем"),
           h("table", { class: "table" }, h("tbody", null, ph.map(([k, v]) => h("tr", null, h("td", { class: "mono" }, `%(${k})s`), h("td", { class: "muted" }, String(v).slice(0, 160))))))) : null);
       root.appendChild(bar.el);

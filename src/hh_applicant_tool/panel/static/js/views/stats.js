@@ -84,6 +84,8 @@ export default async function stats(root, ctx, opts = {}) {
     const count = (pred) => data.by_state.filter((x) => pred(x.id)).reduce((a, x) => a + x.count, 0);
     const invites = count((k) => seriesOf(k) === "invitation");
     const discards = count((k) => seriesOf(k) === "discard");
+    // Проценты считаются по загруженным откликам: если их меньше, чем всего, так и пишем
+    const base = data.truncated ? `из последних ${data.total.toLocaleString("ru-RU")}` : "от всех";
     const last30 = data.days.reduce((a, d) => a + Object.values(d.by_state).reduce((x, y) => x + y, 0), 0);
     const maxResume = Math.max(1, ...data.by_resume.map((r) => r.count));
 
@@ -93,9 +95,9 @@ export default async function stats(root, ctx, opts = {}) {
         data.truncated ? callout("info", h("p", null, `Всего откликов ${(data.found || data.total).toLocaleString("ru-RU")}. Проценты и разбивка ниже по последним ${data.total.toLocaleString("ru-RU")}.`)) : null,
         h("div", { class: "grid-4" },
           kpi("Всего откликов", (data.found || data.total).toLocaleString("ru-RU"), `${last30} за 30 дней`),
-          kpi("Просмотрено", pct(data.viewed, data.total), `${data.viewed} ${plural(data.viewed, "отклик", "отклика", "откликов")}`),
-          kpi("Приглашения", invites.toLocaleString("ru-RU"), `${pct(invites, data.total)} от всех`),
-          kpi("Отказы", discards.toLocaleString("ru-RU"), `${pct(discards, data.total)} от всех`)),
+          kpi("Просмотрено", pct(data.viewed, data.total), `${data.viewed} ${base}`),
+          kpi("Приглашения", invites.toLocaleString("ru-RU"), `${pct(invites, data.total)} ${base}`),
+          kpi("Отказы", discards.toLocaleString("ru-RU"), `${pct(discards, data.total)} ${base}`)),
         h("section", { class: "card" },
           h("div", { class: "card-header" }, h("h3", null, "Отклики по дням"),
             last30 ? h("div", { class: "legend" }, SERIES.map((x) => { const i = h("i", { class: `series-${x.id}` }); i.style.background = "var(--series)"; return h("span", null, i, x.label); })) : null),

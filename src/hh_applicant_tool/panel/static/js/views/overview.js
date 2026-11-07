@@ -47,7 +47,7 @@ export default async function overview(root, ctx) {
         h("div", { class: "grid-3" },
           h("div", null, h("div", { class: "kpi-label" }, "Резюме"), h("div", { class: "kpi-value" }, String(c.resumes_count ?? profile.resumes.length))),
           h("div", null, h("div", { class: "kpi-label" }, "Новые просмотры"), h("div", { class: "kpi-value" }, String(c.new_resume_views ?? 0))),
-          h("div", null, h("div", { class: "kpi-label" }, "Непрочитанные"), h("div", { class: "kpi-value" }, String(c.unread_negotiations ?? 0))))),
+          h("div", null, h("div", { class: "kpi-label" }, "Непрочитанные чаты"), h("div", { class: "kpi-value" }, String(c.unread_negotiations ?? 0))))),
       profile.resumes.length ? h("ul", { class: "list" }, profile.resumes.map((r) => h("li", { class: "list-item" },
         h("div", { class: "list-item-main" },
           h("div", { class: "list-item-title truncate" }, r.url ? h("a", { href: r.url, target: "_blank", rel: "noopener noreferrer" }, r.title) : r.title),
@@ -86,7 +86,7 @@ export default async function overview(root, ctx) {
   let statsLine = null;
   if (stats) {
     const last7 = stats.days.slice(-7).reduce((a, d) => a + Object.values(d.by_state).reduce((x, y) => x + y, 0), 0);
-    statsLine = callout("info", h("p", null, `За неделю ${last7} ${plural(last7, "отклик", "отклика", "откликов")}, всего ${stats.total}. `, h("a", { href: "#/negotiations?tab=stats" }, "Подробнее")));
+    statsLine = callout("info", h("p", null, `За неделю ${last7} ${plural(last7, "отклик", "отклика", "откликов")}, всего ${(stats.found ?? stats.total).toLocaleString("ru-RU")}. `, h("a", { href: "#/negotiations?tab=stats" }, "Подробнее")));
   }
 
   mount(root,

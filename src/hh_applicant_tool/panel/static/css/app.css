@@ -237,6 +237,7 @@ svg { flex-shrink: 0; }
 .list-item-main { flex: 1; min-width: 0; }
 .list-item-title { font-weight: var(--font-weight-medium); }
 .list-item-meta { color: var(--color-text-muted); font-size: var(--font-size-sm); }
+.list-item-tags { display: flex; align-items: center; gap: var(--space-2); flex-shrink: 0; }
 
 .table { width: 100%; border-collapse: collapse; }
 .table th { text-align: left; font-weight: var(--font-weight-medium); color: var(--color-text-muted); font-size: var(--font-size-sm); padding: var(--space-2) var(--space-5); border-bottom: 1px solid var(--color-border); }
@@ -448,7 +449,8 @@ details.disclosure > summary:hover { color: var(--color-text); }
 .resume-editor { border-top: 1px solid var(--color-border); background: var(--color-surface-sunken); border-radius: 0 0 var(--radius-lg) var(--radius-lg); }
 
 /* ===== Вакансии ===== */
-.search-bar { display: grid; grid-template-columns: minmax(0, 1fr) minmax(160px, 260px) auto; gap: var(--space-2); }
+.search-bar { display: grid; grid-template-columns: minmax(0, 1fr) minmax(200px, 340px) auto; gap: var(--space-2); }
+.search-bar-single { grid-template-columns: minmax(0, 1fr) auto; }
 .vacancy h3 a { color: var(--color-text); text-decoration: none; }
 .vacancy h3 a:hover { color: var(--color-accent-text); text-decoration: underline; }
 .vacancy-salary { font-weight: var(--font-weight-semibold); }
@@ -525,6 +527,11 @@ details.disclosure > summary:hover { color: var(--color-text); }
 }
 
 @media (max-width: 480px) {
+  /* Метки уходят под заголовок, иначе название вакансии обрезается до пары слов */
+  .list-item:has(> .list-item-tags) { flex-wrap: wrap; row-gap: var(--space-2); }
+  .list-item:has(> .list-item-tags) > .list-item-main { flex-basis: calc(100% - 44px); }
+  .list-item:has(> .list-item-tags) .list-item-title.truncate { white-space: normal; }
+  .list-item > .list-item-tags { order: 3; flex-basis: 100%; flex-wrap: wrap; }
   .grid-4 { grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); gap: var(--space-3); }
   .kpi { padding: var(--space-3) var(--space-4); }
   .kpi-value { font-size: var(--font-size-xl); }
