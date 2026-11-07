@@ -1352,8 +1352,11 @@ docker compose -f docker-compose.panel.yml up -d --build
 
 Удобно держать панель и локальные нейронки на ПК с видеокартой, а открывать её с ноутбука. Если панель слушает не только localhost, она сама включает HTTPS с самоподписанным сертификатом и требует токен (создаётся сам, лежит в `CONFIG_DIR/panel-token.txt`). Вход на устройстве запоминается на год, «Выйти на всех устройствах» есть в «Система → Подключение».
 
-- **Windows без Docker:** `powershell -ExecutionPolicy Bypass -File scripts\windows\install-panel.ps1`. Ставит Ollama, утилиту в venv, открывает порт для домашней сети и включает автозапуск. Всё кладёт в `D:\hh-applicant-tool` (параметр `-InstallDir`), модели тоже.
-- **Docker:** `HH_PANEL_PUBLIC_HOSTS=<IP ПК> docker compose -f docker-compose.pc.yml up -d --build`. Вместе с панелью поднимается Ollama на GPU.
+- **Windows с Docker Desktop (основной вариант):** один раз `powershell -ExecutionPolicy Bypass -File scripts\windows\setup-docker.ps1` в обычной сессии Windows (не по ssh: сборке образа нужно хранилище учётных данных). Скрипт пишет настройки в `D:\hh-applicant-tool\hh.env`, собирает образ, поднимает панель и Ollama на GPU, открывает порт только для локальных сетей и кладёт на рабочий стол ярлыки «включить», «выключить», «лог». Дальше `scripts\windows\hh-panel.ps1 start | stop | restart | status | logs | update`. После `stop` контейнеры не стартуют сами до следующего `start`.
+- **Windows без Docker:** `powershell -ExecutionPolicy Bypass -File scripts\windows\install-panel.ps1`. Ставит Ollama, утилиту в venv, открывает порт и включает автозапуск. Всё кладёт в `D:\hh-applicant-tool` (параметр `-InstallDir`), модели тоже.
+- **Linux:** `HH_PANEL_PUBLIC_HOSTS=<IP ПК> docker compose -f docker-compose.pc.yml up -d --build`.
+
+Если на ПК VPN-клиент с fake-ip (Mihomo, Clash), `ollama pull` падает с «resolves to non-public 198.18.x». Добавьте в `fake-ip-filter` домены `+.r2.cloudflarestorage.com`, `+.ollama.com`, `registry.ollama.ai`.
 
 Модели скачиваются и назначаются на задачи в разделе «Модели → Локальные модели». Утилита ходит в Ollama как в OpenAI-совместимый сервер `http://…:11434/v1`.
 

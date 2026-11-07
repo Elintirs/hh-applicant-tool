@@ -306,7 +306,8 @@ class Settings:
             "model": s.get("model"),
             "temperature": s.get("temperature"),
             "max_completion_tokens": s.get("max_completion_tokens") or 200,
-            "timeout": s.get("timeout") or 60,
+            # Первый запрос грузит модель в видеопамять: это бывает дольше минуты
+            "timeout": s.get("timeout") or 180,
             "connect_timeout": s.get("connect_timeout") or 10,
         }
         started = time.monotonic()

@@ -77,7 +77,7 @@ Step "Утилита установлена из $SourceDir"
 
 # ---- 3. Адрес ПК в сети --------------------------------------------------
 $lan = Get-NetIPAddress -AddressFamily IPv4 |
-    Where-Object { $_.PrefixOrigin -in @("Dhcp", "Manual") -and $_.IPAddress -match '^(192\.168|10\.|172\.(1[6-9]|2\d|3[01]))' } |
+    Where-Object { $_.PrefixOrigin -in @("Dhcp", "Manual") -and $_.InterfaceAlias -notlike "vEthernet*" -and $_.IPAddress -match '^(192\.168|10\.|172\.(1[6-9]|2\d|3[01]))' } |
     Select-Object -ExpandProperty IPAddress
 $hosts = ($lan -join ",")
 Step "Адреса ПК в сети: $hosts"

@@ -33,6 +33,7 @@ from ..ai.base import AIError
 from ..api.errors import ApiError as HHApiError
 from ..errors import OperationError
 from ..utils.package import PACKAGE_NAME, get_package_version, parse_version
+from ..utils.system import is_docker
 from .hh import CaptchaBroker, HHService, friendly_error
 from . import remote
 from .introspect import build_schema, operation_title
@@ -967,7 +968,10 @@ def serve(
 ) -> None:
     app = PanelApp(base_dir, profile, token)
     server = PanelServer((host, port), make_handler(app))
-    hosts = list(dict.fromkeys([*(public_hosts or []), *([] if remote.is_local(host) else remote.lan_addresses())]))
+    # В контейнере свои адреса бесполезны (172.x внутренней сети Docker):
+    # там берём только то, что передали в HH_PANEL_PUBLIC_HOSTS
+    auto = [] if remote.is_local(host) or is_docker() else remote.lan_addresses()
+    hosts = list(dict.fromkeys([*(public_hosts or []), *auto]))
     app.net = {"host": host, "port": port, "public_port": public_port, "tls": tls, "public_hosts": hosts, "remote": not remote.is_local(host)}
     if tls:
         cert, key = remote.ensure_certificate(base_dir, hosts)
