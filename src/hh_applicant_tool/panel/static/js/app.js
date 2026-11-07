@@ -226,7 +226,7 @@ function loginScreen() {
     h("div", { class: "card-body stack" },
       h("div", { class: "brand" }, h("img", { class: "brand-mark", src: "img/logo.svg", alt: "", width: 34, height: 34 }),
         h("div", null, h("div", { class: "brand-name" }, "Панель соискателя"), h("div", { class: "brand-version" }, "Нужен токен доступа"))),
-      field({ label: "Токен", control: tokenInput, help: "Тот, что задан в HH_PANEL_TOKEN или флаге --token." }),
+      field({ label: "Токен", control: tokenInput, help: "Лежит в файле panel-token.txt в папке конфига на компьютере с панелью (на ПК: D:\\hh-applicant-tool\\config). Вводится один раз, браузер запомнит вход."}),
       errorEl, submit));
   form.addEventListener("submit", (e) => {
     e.preventDefault();
