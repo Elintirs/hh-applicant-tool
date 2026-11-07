@@ -22,6 +22,7 @@ from datetime import datetime
 from pathlib import Path
 from typing import Any
 
+from ..ai.base import AIError
 from ..api.errors import ApiError
 from ..errors import OperationError
 from ..operations import apply_vacancies as av
@@ -175,21 +176,25 @@ class HHService:
             items = tool.get_resumes()
         out = []
         for r in items:
+            # Счётчики hh кладёт прямо в резюме; counters встречается в
+            # старых ответах, оставляем как запасной вариант
             counters = r.get("counters") if isinstance(r.get("counters"), dict) else {}
+            similar = (r.get("similar_vacancies") or {}).get("counters") or {}
+            status = (r.get("status") or {}).get("name") or ""
             salary = r.get("salary") or {}
             out.append(
                 {
                     "id": r.get("id"),
                     "title": r.get("title"),
                     "url": r.get("alternate_url"),
-                    "status": (r.get("status") or {}).get("name"),
+                    "status": status[:1].upper() + status[1:],
                     "status_id": (r.get("status") or {}).get("id"),
                     "updated_at": r.get("updated_at"),
                     "can_publish_or_update": r.get("can_publish_or_update"),
                     "next_publish_at": r.get("next_publish_at"),
-                    "total_views": counters.get("total_views"),
-                    "new_views": counters.get("new_views"),
-                    "invitations": counters.get("invitations"),
+                    "total_views": r.get("total_views", counters.get("total_views")),
+                    "new_views": r.get("new_views", counters.get("new_views")),
+                    "similar": similar.get("total"),
                     "salary": salary or None,
                     "area": (r.get("area") or {}).get("name"),
                     "access": (r.get("access") or {}).get("type", {}).get("name") if isinstance((r.get("access") or {}).get("type"), dict) else None,
@@ -465,11 +470,22 @@ class HHService:
             ph = self._placeholders(op, resume_id, vacancy)
             excluded = op._is_excluded(vacancy) if op.excluded_pat else False
             suitable = None
+            ai_error = None
             if op.vacancy_filter_ai:
-                suitable = op._is_vacancy_suitable(vacancy, ph)
+                try:
+                    suitable = op._is_vacancy_suitable(vacancy, ph)
+                except AIError as ex:
+                    # Модель недоступна: не роняем проверку, а честно
+                    # говорим, что фильтр не сработал
+                    ai_error = str(ex)
             force = op.force_cover_letter
             op.force_cover_letter = True
-            letter = op._build_cover_letter(vacancy, ph)
+            try:
+                letter = op._build_cover_letter(vacancy, ph)
+            except AIError as ex:
+                ai_error = ai_error or str(ex)
+                op.cover_letter_ai = None
+                letter = op._build_cover_letter(vacancy, ph)
             op.force_cover_letter = force
             template = None
             if op.letter_template:
@@ -481,6 +497,7 @@ class HHService:
         return {
             "excluded": excluded,
             "suitable": suitable,
+            "ai_error": ai_error,
             "letter": letter,
             "letter_source": "template" if template else ("ai" if op.cover_letter_ai else "default"),
             "template": template,

@@ -55,7 +55,9 @@ export default async function resumes(root, ctx) {
   function stats(r) {
     const cell = (label, value) => h("div", null, h("div", { class: "kpi-label" }, label), h("div", { class: "kpi-value kpi-sm" }, value ?? "–"));
     return h("div", { class: "grid-3 resume-stats" },
-      cell("Просмотры", r.total_views), cell("Новые", r.new_views), cell("Приглашения", r.invitations));
+      cell("Просмотры", r.total_views), cell("Новые просмотры", r.new_views),
+      r.similar != null ? h("div", null, h("div", { class: "kpi-label" }, "Похожие вакансии"),
+        h("a", { class: "kpi-value kpi-sm", href: `#/vacancies`, title: "Подобрать вакансии" }, r.similar.toLocaleString("ru-RU"))) : cell("Видимость", null));
   }
 
   function card(r) {
@@ -71,7 +73,7 @@ export default async function resumes(root, ctx) {
           h("div", { class: "grow" },
             h("div", { class: "row" }, h("h3", null, r.title || "Без названия"),
               h("span", { class: `badge ${r.status_id === "published" ? "badge-success" : ""}` }, r.status || "")),
-            h("p", { class: "subtle" }, [r.area, r.updated_at ? `обновлено ${relTime(Date.parse(r.updated_at) / 1000)}` : null].filter(Boolean).join(" · "))),
+            h("p", { class: "subtle" }, [r.area, r.updated_at ? `обновлено ${relTime(Date.parse(r.updated_at) / 1000)}` : null, r.access].filter(Boolean).join(" · "))),
           h("div", { class: "row" },
             r.url ? h("a", { class: "btn btn-sm btn-ghost", href: r.url, target: "_blank", rel: "noopener noreferrer" }, icon("external", 16), "На hh.ru") : null,
             button(isOpen ? "Свернуть" : "Изменить", { size: "sm", attrs: { "aria-expanded": String(isOpen) }, onClick: () => { openId = isOpen ? null : r.id; render(); } }),

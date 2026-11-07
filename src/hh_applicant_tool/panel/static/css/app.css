@@ -95,6 +95,8 @@ svg { flex-shrink: 0; }
 .row { display: flex; gap: var(--space-2); align-items: center; flex-wrap: wrap; }
 .row-between { display: flex; gap: var(--space-3); align-items: center; justify-content: space-between; flex-wrap: wrap; }
 .grow { flex: 1 1 auto; min-width: 0; }
+/* В строке «заголовок и действия» текст сжимается, а кнопки остаются справа */
+.row-between > .grow { flex: 1 1 0; min-width: min(100%, 260px); }
 .grid-2 { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: var(--space-4); }
 .grid-3 { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: var(--space-4); }
 .grid-4 { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: var(--space-4); }
@@ -192,9 +194,9 @@ svg { flex-shrink: 0; }
 .switch input:focus-visible + .switch-track { outline: 2px solid var(--color-focus); outline-offset: 2px; }
 
 /* Сегменты */
-.segmented { display: inline-flex; padding: 2px; gap: 2px; border-radius: var(--radius-md); background: var(--color-surface-hover); border: 1px solid var(--color-border); }
+.segmented { display: inline-flex; max-width: 100%; overflow-x: auto; scrollbar-width: none; padding: 2px; gap: 2px; border-radius: var(--radius-md); background: var(--color-surface-hover); border: 1px solid var(--color-border); }
 .segmented button {
-  height: 28px; padding: 0 var(--space-3); border: 0; border-radius: 6px; background: transparent;
+  flex-shrink: 0; white-space: nowrap; height: 28px; padding: 0 var(--space-3); border: 0; border-radius: 6px; background: transparent;
   color: var(--color-text-muted); font: inherit; font-size: var(--font-size-sm); font-weight: var(--font-weight-medium); cursor: pointer;
 }
 .segmented button[aria-pressed="true"] { background: var(--color-surface); color: var(--color-text); box-shadow: var(--shadow-sm); }
@@ -462,7 +464,10 @@ details.disclosure > summary:hover { color: var(--color-text); }
 .chat-row:first-child { border-top: 0; }
 .chat-row:hover { background: var(--color-surface-hover); }
 .chat-row[aria-current="true"] { background: var(--color-accent-soft); }
-.chat-title { font-weight: var(--font-weight-medium); }
+.chat-title { font-weight: var(--font-weight-medium); flex: 1 1 auto; min-width: 0; }
+.chat-row .row-between { flex-wrap: nowrap; }
+.chat-row .row-between > .row { flex-wrap: nowrap; flex-shrink: 0; gap: 6px; }
+.chat-last { flex: 1 1 auto; min-width: 0; }
 .chat-title.is-unread { font-weight: var(--font-weight-semibold); }
 .chat-last { color: var(--color-text-muted); font-size: var(--font-size-sm); }
 .chat-row .count { min-width: 20px; height: 20px; padding: 0 6px; display: inline-grid; place-items: center; border-radius: var(--radius-full); background: var(--color-accent); color: var(--button-primary-text); font-size: 11px; font-weight: var(--font-weight-semibold); }
@@ -483,6 +488,8 @@ details.disclosure > summary:hover { color: var(--color-text); }
   .grid-4 { grid-template-columns: repeat(2, minmax(0, 1fr)); }
   .jobs-layout, .run-layout, .chats-layout, .login-layout { grid-template-columns: minmax(0, 1fr); }
   .chat-list { max-height: 300px; }
+  .chat-pane.is-empty { display: none; }
+  .chats-layout:has(.chat-pane.is-empty) .chat-list { max-height: none; }
   .op-list { display: none; }
   .op-select { display: block; }
   .jobs-list { max-height: 320px; }

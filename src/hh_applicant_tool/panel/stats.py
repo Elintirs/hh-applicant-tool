@@ -95,13 +95,31 @@ class Stats:
             self._lock.release()
 
     def _refresh(self) -> dict[str, Any]:
-        with self.service.lock:
-            return self._collect()
+        return self._collect()
+
+    def _pages(self):
+        """Отклики постранично. Общую блокировку берём на одну страницу,
+        чтобы долгий пересчёт не подвешивал остальные экраны панели."""
+        page = 0
+        while True:
+            with self.service.lock:
+                r = self.service.tool().api_client.get(
+                    "/negotiations", page=page, per_page=100, status="all"
+                )
+            items = r.get("items", [])
+            if page == 0:
+                self._found = r.get("found")
+            yield from items
+            page += 1
+            if not items or page >= r.get("pages", 0):
+                return
 
     def _collect(self) -> dict[str, Any]:
-        tool = self.service.tool()
-        if not tool.token_config.get("token"):
-            raise RuntimeError("Сначала войдите в аккаунт")
+        with self.service.lock:
+            tool = self.service.tool()
+            if not tool.token_config.get("token"):
+                raise RuntimeError("Сначала войдите в аккаунт")
+        self._found = None
         by_state: Counter[str] = Counter()
         state_names: dict[str, str] = {}
         per_day: dict[str, Counter[str]] = defaultdict(Counter)
@@ -111,7 +129,8 @@ class Stats:
         total = 0
         recent = []
         since = datetime.now(timezone.utc) - timedelta(days=DAYS)
-        for n in tool.get_negotiations(status="all"):
+        last_created: datetime | None = None
+        for n in self._pages():
             total += 1
             state = n.get("state") or {}
             sid = state.get("id") or "unknown"
@@ -124,6 +143,8 @@ class Stats:
                 by_resume[resume["id"]] += 1
                 resume_titles[resume["id"]] = resume.get("title") or resume["id"]
             created = _parse_dt(n.get("created_at"))
+            if created and (last_created is None or created > last_created):
+                last_created = created
             if created and created >= since:
                 per_day[created.date().isoformat()][sid] += 1
             if len(recent) < RECENT_LIMIT:
@@ -149,10 +170,14 @@ class Stats:
             d = (today - timedelta(days=i)).isoformat()
             days.append({"date": d, "by_state": dict(per_day.get(d, {}))})
 
+        # Реальное число откликов: сводку считаем по последним MAX_NEGOTIATIONS
+        found = self._found or total
         data = {
             "updated_at": time.time(),
+            "found": found,
             "total": total,
             "truncated": total >= MAX_NEGOTIATIONS,
+            "last_created_at": last_created.timestamp() if last_created else None,
             "viewed": viewed,
             "by_state": [
                 {"id": k, "name": state_names[k], "count": v}

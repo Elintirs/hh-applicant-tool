@@ -48,7 +48,7 @@ async function searchTab(host, ctx) {
 
   let results = null, page = 0;
   const resultsHost = h("div", { class: "stack" });
-  const searchInput = input({ type: "search", value: state.values.text || "", placeholder: "Например, Python разработчик. Пусто: похожие на резюме", "aria-label": "Что ищем" });
+  const searchInput = input({ type: "search", value: state.values.text || "", placeholder: "Должность, навыки или компания", "aria-label": "Что ищем" });
   searchInput.addEventListener("input", () => { state.values.text = searchInput.value || undefined; });
   const resumeSel = select(published.map((r) => [r.id, r.title]), { value: state.resume_id, "aria-label": "Резюме", onchange: (e) => { state.resume_id = e.target.value; } });
   const setter = (dest) => (v) => { if (v === undefined) delete state.values[dest]; else state.values[dest] = v; };
@@ -121,6 +121,7 @@ async function searchTab(host, ctx) {
           toast("Отклик отправлен");
         } catch (err) { toast(err.message, "error"); }
       }));
+      const aiWarn = r.ai_error ? callout("warning", h("p", null, "Модель не ответила, поэтому AI-фильтр не сработал, а письмо собрано без AI. Проверьте раздел «Модели»."), h("p", { class: "subtle" }, r.ai_error)) : null;
       const verdict = r.excluded
         ? callout("warning", h("p", null, "Вакансия попала под фильтр исключений (--excluded-filter)."))
         : r.suitable === false
@@ -128,6 +129,7 @@ async function searchTab(host, ctx) {
           : r.suitable === true ? callout("success", h("p", null, "AI-фильтр: подходит.")) : null;
       const source = { template: `Письмо из шаблона «${r.template}»`, ai: "Письмо написал AI", default: "Общее письмо" }[r.letter_source];
       mount(details,
+        aiWarn,
         verdict,
         r.key_skills.length ? h("div", { class: "chips" }, r.key_skills.map((s) => h("span", { class: "chip" }, s))) : null,
         h("details", { class: "disclosure" }, h("summary", null, chev(), "Описание вакансии"), h("p", { class: "muted pre-line" }, r.description)),
@@ -214,7 +216,7 @@ async function hiddenTab(host, ctx, kind) {
 export default async function vacancies(root, ctx) {
   let tab = ctx.params.get("tab") || "search";
   const host = h("div", { class: "stack" });
-  const tabs = segmented([["search", "Подбор"], ["vacancies", "Скрытые вакансии"], ["employers", "Скрытые компании"]], tab, (t) => {
+  const tabs = segmented([["search", "Подбор"], ["vacancies", "Скрытые"], ["employers", "Скрытые компании"]], tab, (t) => {
     tab = t; history.replaceState(null, "", `#/vacancies?tab=${t}`); show();
   }, "Раздел");
   const show = () => (tab === "search" ? searchTab(host, ctx) : hiddenTab(host, ctx, tab));

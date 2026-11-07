@@ -28,6 +28,7 @@ from urllib.parse import parse_qs, urlsplit
 
 import requests
 
+from ..ai.base import AIError
 from ..api.errors import ApiError as HHApiError
 from ..errors import OperationError
 from ..utils.package import PACKAGE_NAME, get_package_version, parse_version
@@ -313,6 +314,8 @@ def make_handler(app: PanelApp) -> type[BaseHTTPRequestHandler]:
                 self._error(str(ex), 409)
             except HHApiError as ex:
                 self._error(friendly_error(ex), 502)
+            except AIError as ex:
+                self._error(f"Модель не ответила. Проверьте раздел «Модели». {ex}", 502)
             except requests.RequestException as ex:
                 self._error(f"Нет связи с hh.ru: {ex}", 502)
             except (BrokenPipeError, ConnectionResetError):

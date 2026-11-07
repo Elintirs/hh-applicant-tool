@@ -9,6 +9,8 @@ const STATE = {
   INVITATION: ["Приглашение", "success"],
   DISCARD: ["Отказ", "danger"],
   RESPONSE: ["Отклик", ""],
+  INTERVIEW: ["Собеседование", "success"],
+  OFFER: ["Предложение", "success"],
   HIRED: ["Выход на работу", "success"],
 };
 
@@ -60,6 +62,7 @@ export default async function chats(root, ctx) {
 
   async function open(id) {
     selected = id;
+    pane.classList.remove("is-empty");
     history.replaceState(null, "", `#/chats?id=${id}${filter === "unread" ? "&unread=1" : ""}`);
     renderList();
     mount(pane, h("div", { class: "card-body" }, skeleton(6)));
@@ -116,7 +119,10 @@ export default async function chats(root, ctx) {
     if (matchMedia("(max-width: 1080px)").matches) pane.scrollIntoView({ block: "start" });
   }
 
-  const placeholder = () => h("div", { class: "card-body" }, empty({ iconName: "chat", title: "Выберите чат", text: "Слева переписки, новые сверху." }));
+  const placeholder = () => {
+    pane.classList.add("is-empty");
+    return h("div", { class: "card-body" }, empty({ iconName: "chat", title: "Выберите чат", text: "Слева переписки, новые сверху." }));
+  };
 
   async function refresh() {
     try { await load(); renderList(); } catch { /* тихо, при следующем опросе */ }
