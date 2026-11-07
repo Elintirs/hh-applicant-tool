@@ -23,7 +23,9 @@ export default async function login(root, ctx) {
 
   const form = h("form", { class: "card", "aria-labelledby": "login-title" },
     h("div", { class: "card-body stack" },
-      h("h2", { id: "login-title" }, "Вход в hh.ru"),
+      h("div", { class: "login-hero" },
+        h("img", { src: "img/logo.svg", alt: "", width: 56, height: 56 }),
+        h("div", null, h("h2", { id: "login-title" }, "Аккаунт соискателя"), h("p", { class: "subtle" }, "Войдите тем же телефоном или почтой, что на hh.ru"))),
       h("p", { class: "muted" }, "Код придёт в СМС или на почту, его спросим здесь же. Если hh попросит капчу, она тоже появится в окне."),
       h("div", null, modeCtl),
       field({ label: "Телефон или почта", control: username }),

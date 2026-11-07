@@ -137,7 +137,7 @@ function shell() {
 
   const sidebar = h("aside", { class: "sidebar", id: "sidebar" },
     h("div", { class: "brand" },
-      h("div", { class: "brand-mark", "aria-hidden": "true" }, "HH"),
+      h("img", { class: "brand-mark", src: "img/logo.svg", alt: "", width: 34, height: 34 }),
       h("div", null,
         h("div", { class: "brand-name" }, "Панель соискателя"),
         h("div", { class: "brand-version" }, state.info ? `hh-applicant-tool ${state.info.version}` : ""))),
@@ -224,7 +224,7 @@ function loginScreen() {
   const submit = button("Войти", { variant: "primary", type: "submit" });
   const form = h("form", { class: "card" },
     h("div", { class: "card-body stack" },
-      h("div", { class: "brand" }, h("div", { class: "brand-mark", "aria-hidden": "true" }, "HH"),
+      h("div", { class: "brand" }, h("img", { class: "brand-mark", src: "img/logo.svg", alt: "", width: 34, height: 34 }),
         h("div", null, h("div", { class: "brand-name" }, "Панель соискателя"), h("div", { class: "brand-version" }, "Нужен токен доступа"))),
       field({ label: "Токен", control: tokenInput, help: "Тот, что задан в HH_PANEL_TOKEN или флаге --token." }),
       errorEl, submit));

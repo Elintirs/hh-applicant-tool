@@ -1,1 +1,7 @@
-<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 32 32"><rect width="32" height="32" rx="8" fill="#3a56cf"/><path d="M9 9v14M9 16h6M15 9v14M19 9v14M19 16h5M24 9v14" stroke="#fff" stroke-width="2.4" stroke-linecap="round" fill="none"/></svg>
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64" role="img" aria-label="hh-applicant-tool">
+  <rect width="64" height="64" rx="14" fill="#B12521"/>
+  <path d="M27.05 10.56 L27.94 4.80 L36.06 4.80 L36.95 10.56 L43.66 13.34 L48.36 9.89 L54.11 15.64 L50.66 20.34 L53.44 27.05 L59.20 27.94 L59.20 36.06 L53.44 36.95 L50.66 43.66 L54.11 48.36 L48.36 54.11 L43.66 50.66 L36.95 53.44 L36.06 59.20 L27.94 59.20 L27.05 53.44 L20.34 50.66 L15.64 54.11 L9.89 48.36 L13.34 43.66 L10.56 36.95 L4.80 36.06 L4.80 27.94 L10.56 27.05 L13.34 20.34 L9.89 15.64 L15.64 9.89 L20.34 13.34Z" fill="#fff" stroke="#fff" stroke-width="1.6" stroke-linejoin="round"/>
+  <circle cx="32" cy="32" r="15.2" fill="#B12521"/>
+  <circle cx="32" cy="32" r="13" fill="none" stroke="#fff" stroke-width="1.4"/>
+  <path d="M24.00 26.50h2.2v4.40h2.80v-4.40h2.2v11h-2.2v-4.40h-2.80v4.40h-2.2zM32.80 26.50h2.2v4.40h2.80v-4.40h2.2v11h-2.2v-4.40h-2.80v4.40h-2.2z" fill="#fff"/>
+</svg>

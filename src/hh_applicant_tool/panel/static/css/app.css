@@ -54,11 +54,10 @@ svg { flex-shrink: 0; }
 }
 
 .brand { display: flex; align-items: center; gap: var(--space-3); padding: var(--space-1) var(--space-2) var(--space-4); }
-.brand-mark {
-  display: grid; place-items: center; width: 32px; height: 32px;
-  border-radius: var(--radius-md); background: var(--color-accent); color: var(--button-primary-text);
-  font-weight: 700; font-size: 13px; letter-spacing: 0.02em;
-}
+.brand-mark { display: block; width: 34px; height: 34px; flex-shrink: 0; border-radius: 9px; box-shadow: 0 1px 2px rgb(0 0 0 / 0.15); }
+.login-hero { display: flex; align-items: center; gap: var(--space-4); }
+.login-hero img { width: 56px; height: 56px; border-radius: 14px; box-shadow: var(--shadow-md); }
+.login .brand-mark { width: 44px; height: 44px; border-radius: 11px; }
 .brand-name { font-weight: var(--font-weight-semibold); line-height: 1.2; }
 .brand-version { font-size: var(--font-size-xs); color: var(--color-text-subtle); }
 

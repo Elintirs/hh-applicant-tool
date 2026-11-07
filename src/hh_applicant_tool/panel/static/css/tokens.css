@@ -52,6 +52,10 @@
   --violet-600: #6b46d6;
   --violet-900: #2a1f4d;
 
+  /* Красный из логотипа. Только для знака и бренда: для кнопок он не
+     подходит, красный в интерфейсе уже значит «опасно» */
+  --brand-red: #b12521;
+
   /* ---- типографика ---- */
   --font-sans: -apple-system, BlinkMacSystemFont, "Segoe UI", "Inter", Roboto, "Helvetica Neue", Arial, sans-serif;
   --font-mono: ui-monospace, "SF Mono", "JetBrains Mono", Menlo, Consolas, "Liberation Mono", monospace;
