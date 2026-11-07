@@ -82,13 +82,30 @@ $lan = Get-NetIPAddress -AddressFamily IPv4 |
 $hosts = ($lan -join ",")
 Step "Адреса ПК в сети: $hosts"
 
-# Скрипт запуска: перезапускает панель, если она упала
+# Если панель уже запущена (повторная установка), останавливаем её
+if (Get-ScheduledTask -TaskName $TaskName -ErrorAction SilentlyContinue) {
+    Stop-ScheduledTask -TaskName $TaskName -ErrorAction SilentlyContinue
+}
+Get-CimInstance Win32_Process |
+    Where-Object { $_.CommandLine -like "*run-panel.ps1*" -or $_.CommandLine -like "*hh_applicant_tool panel*" } |
+    ForEach-Object { Stop-Process -Id $_.ProcessId -Force -ErrorAction SilentlyContinue }
+
+# Скрипт запуска: поднимает Ollama, если она не отвечает, и перезапускает
+# панель, если та упала
+$OllamaExe = (Get-Command ollama -ErrorAction SilentlyContinue).Source
+if (-not $OllamaExe) { $OllamaExe = Join-Path $Home_ "Ollama\ollama.exe" }
 @"
 `$env:HH_PANEL_PUBLIC_HOSTS = "$hosts"
 `$env:CONFIG_DIR = "$ConfigDir"
 `$env:OLLAMA_URL = "http://127.0.0.1:11434"
+`$env:OLLAMA_MODELS = "$ModelsDir"
 `$env:PYTHONIOENCODING = "utf-8"
+function Start-OllamaIfDown {
+    try { Invoke-RestMethod http://127.0.0.1:11434/api/version -TimeoutSec 3 | Out-Null }
+    catch { if (Test-Path "$OllamaExe") { Start-Process -WindowStyle Hidden -FilePath "$OllamaExe" -ArgumentList "serve" } }
+}
 while (`$true) {
+    Start-OllamaIfDown
     & "$Python" -m hh_applicant_tool panel --host 0.0.0.0 --port $Port *>> "$Home_\panel.log"
     Start-Sleep -Seconds 5
 }

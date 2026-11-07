@@ -47,7 +47,9 @@ def lan_addresses() -> list[str]:
             ip = ipaddress.ip_address(a)
         except ValueError:
             continue
-        if ip.is_private and not ip.is_loopback:
+        # 198.18.0.0/15 занимают TUN-интерфейсы VPN-клиентов (Mihomo, Clash):
+        # с другого устройства по такому адресу не зайти
+        if ip.is_private and not ip.is_loopback and ip not in ipaddress.ip_network("198.18.0.0/15"):
             out.append(a)
     return out
 
