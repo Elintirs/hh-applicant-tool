@@ -3,6 +3,7 @@ from __future__ import annotations
 
 import argparse
 import logging
+from datetime import datetime, timezone
 from typing import TYPE_CHECKING
 
 from ..api import ApiError, datatypes
@@ -19,6 +20,29 @@ class Namespace(BaseNamespace):
     pass
 
 
+def _why_not(resume: datatypes.Resume) -> str:
+    """Почему hh не даёт поднять резюме, человеческими словами."""
+    if resume.get("blocked"):
+        return "резюме заблокировано модератором"
+    status = (resume.get("status") or {}).get("id")
+    if status and status != "published":
+        return "резюме не опубликовано, сначала опубликуйте его на hh.ru"
+    next_at = resume.get("next_publish_at")
+    if next_at:
+        try:
+            when = datetime.strptime(next_at, "%Y-%m-%dT%H:%M:%S%z").astimezone()
+        except ValueError:
+            return f"hh разрешает поднимать раз в 4 часа, следующий раз {next_at}"
+        left = max(0, int((when - datetime.now(timezone.utc)).total_seconds() // 60))
+        hours, minutes = divmod(left, 60)
+        wait = f"{hours} ч {minutes} мин" if hours else f"{minutes} мин"
+        return (
+            "hh разрешает поднимать раз в 4 часа, "
+            f"следующий раз в {when:%H:%M} (через {wait})"
+        )
+    return "hh пока не разрешает его поднять"
+
+
 class Operation(BaseOperation):
     """Обновить все резюме"""
 
@@ -31,7 +55,10 @@ class Operation(BaseOperation):
         resumes: list[datatypes.Resume] = tool.get_resumes()
         for resume in resumes:
             if not resume.get("can_publish_or_update"):
-                logger.warning(f"Не могу обновить: {resume['alternate_url']}")
+                logger.warning(
+                    f"Не могу обновить «{shorten(resume['title'])}»: "
+                    f"{_why_not(resume)}. {resume['alternate_url']}"
+                )
                 continue
             try:
                 r = tool.api_client.post(
