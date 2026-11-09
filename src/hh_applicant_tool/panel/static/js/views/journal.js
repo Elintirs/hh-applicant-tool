@@ -1,5 +1,5 @@
 import { get } from "../api.js";
-import { h, mount, skeleton, errorState, pageHeader, empty } from "../ui.js";
+import { h, mount, skeleton, errorState, pageHeader, empty, select, input, segmented } from "../ui.js";
 
 const RESULTS = {
   sent: ["Отклик отправлен", "success"],
@@ -46,20 +46,52 @@ function entry(r) {
 }
 
 export default async function journal(root) {
-  mount(root, pageHeader("Журнал AI", "Что модель получила и что ответила по вакансиям и чатам. Пишут apply-vacancies и reply-chats, обновляется сам."), skeleton(4));
-  let timer;
+  const lead = "Что модель получила и что ответила по вакансиям и чатам. Пишут apply-vacancies и reply-chats, обновляется сам.";
+  mount(root, pageHeader("Журнал AI", lead), skeleton(4));
+  let timer, items = [], path = "";
+  const f = { kind: "all", result: "", q: "" };
   const open = new Set();
+  const listEl = h("div", { class: "stack" });
+  const countEl = h("span", { class: "subtle" });
+  const resultSel = select([], { "aria-label": "Результат", onchange: (e) => { f.result = e.target.value; render(); } });
+  const searchEl = input({ type: "search", placeholder: "Вакансия или компания", "aria-label": "Поиск", oninput: (e) => { f.q = e.target.value.trim().toLowerCase(); render(); } });
+  const kindCtl = segmented([["all", "Все"], ["apply", "Отклики"], ["chat", "Чаты"]], f.kind, (k) => { f.kind = k; f.result = ""; render(); }, "Тип записей");
+  const byKind = (r) => f.kind === "all" || (f.kind === "chat") === (r.kind === "chat");
+
+  function render() {
+    // Варианты результата с количеством по выбранному типу
+    const counts = {};
+    for (const r of items) if (byKind(r)) counts[r.result] = (counts[r.result] || 0) + 1;
+    mount(resultSel, h("option", { value: "" }, "Все результаты"),
+      ...Object.keys(counts).map((k) => h("option", { value: k }, `${(RESULTS[k] || [k])[0]} (${counts[k]})`)));
+    if (f.result && !counts[f.result]) f.result = "";
+    resultSel.value = f.result;
+    const shown = items.filter((r) => byKind(r)
+      && (!f.result || r.result === f.result)
+      && (!f.q || `${r.vacancy || ""} ${r.employer || ""}`.toLowerCase().includes(f.q)));
+    countEl.textContent = `${shown.length} из ${items.length}`;
+    // Перерисовка не должна схлопывать раскрытые блоки
+    listEl.querySelectorAll("details[open] summary").forEach((s) => open.add(s.textContent));
+    mount(listEl, ...(shown.length
+      ? shown.map(entry)
+      : [h("div", { class: "card" }, items.length
+        ? empty({ iconName: "search", title: "Ничего не найдено", text: "Поменяйте фильтры." })
+        : empty({ iconName: "sparkle", title: "Журнал пока пуст", text: "Записи появятся после запуска apply-vacancies или reply-chats с AI." }))]));
+    listEl.querySelectorAll("details summary").forEach((s) => { if (open.has(s.textContent)) s.parentElement.open = true; });
+  }
+
   async function load() {
     let data;
-    try { data = await get("journal?limit=100"); } catch (err) { mount(root, errorState(err, load)); return; }
-    // Перерисовка не должна схлопывать раскрытые блоки
-    root.querySelectorAll("details[open] summary").forEach((s) => open.add(s.textContent));
-    mount(root,
-      pageHeader("Журнал AI", `Последние ${data.items.length} записей. Файл: ${data.path}`),
-      data.items.length
-        ? h("div", { class: "stack" }, data.items.map(entry))
-        : h("div", { class: "card" }, empty({ iconName: "sparkle", title: "Журнал пока пуст", text: "Записи появятся после запуска apply-vacancies или reply-chats с AI." })));
-    root.querySelectorAll("details summary").forEach((s) => { if (open.has(s.textContent)) s.parentElement.open = true; });
+    try { data = await get("journal?limit=500"); } catch (err) { mount(root, errorState(err, load)); return; }
+    items = data.items;
+    if (path !== data.path) {
+      path = data.path;
+      mount(root,
+        pageHeader("Журнал AI", `${lead} Файл: ${path}`),
+        h("div", { class: "journal-filters" }, kindCtl, resultSel, searchEl, countEl),
+        listEl);
+    }
+    render();
   }
   await load();
   timer = setInterval(load, 10000);
