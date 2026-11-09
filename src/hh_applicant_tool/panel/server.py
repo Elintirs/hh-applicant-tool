@@ -105,8 +105,8 @@ class PanelApp:
         self.jobs.on_finish(self._after_job)
 
     def _keep_models(self, profile: str, load: bool) -> None:
-        """Грузит в Ollama (на 3 часа) или выгружает модели AI-задач профиля,
-        которые смотрят в эту же Ollama."""
+        """Грузит в Ollama (на 3 часа) или отпускает через 10 минут модели
+        AI-задач профиля, которые смотрят в эту же Ollama."""
         tool = self.ctx(profile).service.tool()
         host = urlsplit(self.ollama.url).netloc
         models = set()
@@ -119,7 +119,9 @@ class PanelApp:
             if c.get("model") and urlsplit(c.get("base_url") or "").netloc == host:
                 models.add(c["model"])
         for model in sorted(models):
-            self.ollama.keep(model, "3h" if load else 0)
+            # Не выгружаем мгновенно: черновик в чате сразу после задачи не
+            # должен ждать минуты загрузки, запросы сами продлят срок
+            self.ollama.keep(model, "3h" if load else "10m")
 
     def _after_job(self, job) -> None:
         # Вход и выход меняют token.json: сбросим кэш утилиты профиля

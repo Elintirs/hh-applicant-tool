@@ -24,7 +24,7 @@ from ..ai.openai import OpenAIChat
 from ..api import BadResponse, Redirect, datatypes
 from ..api.datatypes import PaginatedItems, SearchVacancy, Vacancy
 from ..api.errors import ApiError, LimitExceeded
-from ..constants import GITHUB_PROFILE_URL, GITHUB_REPO_URL
+from ..constants import GITHUB_REPO_URL
 from ..errors import OperationError, XHRError
 from ..tool import BaseNamespace, BaseOperation
 from ..utils.datatypes import VacancyTestsData
@@ -128,15 +128,17 @@ DEFAULT_AI_FILTER_SYSTEM_PROMPT = """\
 Родственные технологии считаются совпадением: Vue, Angular, Svelte при опыте React; Express, Fastify при опыте NestJS; MySQL при опыте PostgreSQL."""
 
 DEFAULT_TEST_SYSTEM_PROMPT = """\
-Ты проходишь тест при отклике на вакансию от имени кандидата. \
-Отвечай на русском языке.
+Ты заполняешь анкету работодателя при отклике на hh.ru от лица кандидата, от первого лица, по-русски. Ответы читает рекрутер.
 
 Правила:
-- Выводи ТОЛЬКО ответ, без вступлений, пояснений и комментариев.
-- Не используй markdown и плейсхолдеры в скобках.
-- Если нужно выбрать вариант, ответь только его числовым ID.
-- Если нужен текстовый ответ, пиши кратко, 1-3 предложения, по существу.
-- Не придумывай факты о кандидате, которых нет в вопросе."""
+- Выводи только ответ: без вступлений, пояснений, markdown и плейсхолдеров в скобках.
+- В вопросе с вариантами выведи только числовой ID выбранного варианта.
+- Текстовый ответ: 1-2 коротких предложения по существу.
+- Факты о кандидате бери только из резюме в запросе: город, формат работы, опыт, навыки, контакты. Контакт (Telegram, почту, телефон, GitHub) пиши, только если он дословно есть в резюме; иначе предложи связаться через hh.
+- Если в резюме ответа нет, не утверждай ни «да», ни «нет» и не придумывай даты: ответь, что расскажешь подробно на собеседовании. Так отвечай про оформление по ТК на прошлых местах, дату выхода на работу, паспорт, адрес, судимость. Например: «Расскажу подробно на собеседовании».
+- Зарплата: если в резюме она указана, назови её; если нет, ответь, что готов обсудить на собеседовании после деталей задач.
+- Вопросы о готовности (к тестовому, к проверке документов, к рекомендациям, к собеседованию) - отвечай положительно, если это не противоречит резюме.
+- Про технологию, которой нет в резюме, честно скажи, что опыта с ней нет, и назови близкое из резюме, если есть."""
 
 # Пользовательские промпты - шаблоны, подстановка через %(name)s
 DEFAULT_COVER_LETTER_PROMPT = """\
@@ -175,26 +177,37 @@ DEFAULT_AI_FILTER_PROMPT = """\
 
 Подходит ли эта вакансия кандидату?"""
 
-DEFAULT_TEST_CHOICE_PROMPT = (
-    "Вопрос: %(question)s\n"
-    "Варианты:\n%(reply_options)s\n"
-    "Выбери правильный вариант. Ответь только его ID."
-)
-
-DEFAULT_TEST_TEXT_PROMPT = """\
-Тебя зовут: %(first_name)s
-Ты ищешь работу в качестве: %(resume_title)s
-Твой профиль на github: %(github_profile_url)s
-Ты хочешь зарплату: %(resume_salary)s
-Подходящие форматы работы: %(resume_work_format)s
-
-Ссылку на GitHub отправляй только если тебя об этом просят.
-
-Ответь на вопрос.
+DEFAULT_TEST_CHOICE_PROMPT = """\
+Кандидат: %(resume_title)s, опыт %(resume_total_experience)s, город %(resume_city)s.
+Формат работы: %(resume_work_format)s
+Навыки: %(resume_skills)s
 
 Вопрос: %(question)s
+Варианты:
+%(reply_options)s
 
-Верни только текст."""
+Выбери вариант, который подходит кандидату, или правильный, если это вопрос на знания. Ответь только ID."""
+
+DEFAULT_TEST_TEXT_PROMPT = """\
+РЕЗЮМЕ
+Имя: %(first_name)s
+Должность: %(resume_title)s
+Город: %(resume_city)s
+Гражданство: %(resume_citizenship)s
+Формат работы: %(resume_work_format)s
+Тип занятости: %(resume_employment_form)s
+Желаемая зарплата: %(resume_salary)s
+Общий опыт: %(resume_total_experience)s
+Навыки: %(resume_skills)s
+GitHub: %(github_profile_url)s
+О себе:
+%(resume_about).1200s
+Опыт работы:
+%(resume_experience).2000s
+
+ВАКАНСИЯ: %(vacancy_name)s, %(employer_name)s
+
+Вопрос работодателя: %(question)s"""
 
 DEFAULT_APPLY_MAIL_SUBJECT = "{Отклик|Резюме} на вакансию %(vacancy_name)s"
 DEFAULT_APPLY_MAIL_BODY = "{Здравствуйте|Добрый день}, {прошу рассмотреть|пожалуйста рассмотрите} мое резюме %(resume_url)s на вакансию %(vacancy_name)s."
@@ -778,8 +791,9 @@ class Operation(BaseOperation):
             "resume_hash": resume.get("id") or "",
             "resume_title": resume.get("title") or "",
             "resume_url": resume.get("alternate_url") or "",
+            # Своя ссылка задаётся в конфиге, чужую подставлять нельзя
             "github_profile_url": self.tool.general_config.get(
-                "github_profile_url", GITHUB_PROFILE_URL
+                "github_profile_url", ""
             ),
         }
         placeholders.update(
