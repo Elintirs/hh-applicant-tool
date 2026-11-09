@@ -37,6 +37,10 @@ logger = logging.getLogger(__name__)
 TICK_SECONDS = 15
 MISSED_GRACE = timedelta(minutes=10)
 MIN_INTERVAL_MINUTES = 5
+# Модель грузим в видеокарту заранее и выгружаем, если впереди пусто
+AI_COMMANDS = {"apply-vacancies", "apply", "reply-chats", "respond-chats"}
+WARMUP_BEFORE = timedelta(minutes=15)
+UNLOAD_IF_IDLE = timedelta(hours=2)
 RESUME_RETRY = timedelta(minutes=15)
 RESUME_SLACK = timedelta(seconds=30)
 # Запуск в режиме resume ушёл, ждём его окончания, hh не спрашиваем
@@ -127,11 +131,16 @@ class Scheduler:
         store: PanelStore,
         jobs: JobManager,
         resume_ready_at: Callable[[str], datetime | None] | None = None,
+        model_hook: Callable[[str, bool], None] | None = None,
     ) -> None:
         self.store = store
         self.jobs = jobs
         # profile -> когда hh разрешит поднять резюме (None: поднимать нечего)
         self.resume_ready_at = resume_ready_at
+        # (profile, загрузить?) -> грузит или выгружает модели профиля
+        self.model_hook = model_hook
+        # id задачи -> на какой запуск уже прогрели модель
+        self._warmed: dict[str, datetime] = {}
         self._stop = threading.Event()
         self._lock = threading.Lock()
         # Для каждой задачи помним, на какое время она уже стоит в плане,
@@ -222,6 +231,42 @@ class Scheduler:
                     self._planned[item["id"]] = next_run(
                         {**item, "last_run_at": None}, after
                     ) if item["mode"] == "daily" else after
+            self._warmup(items, now)
+
+    def _warmup(self, items: list[dict[str, Any]], now: datetime) -> None:
+        """За WARMUP_BEFORE до задачи с моделью грузим модель в видеокарту,
+        чтобы запуск не ждал минуты загрузки с диска."""
+        for item in items:
+            if not (item.get("enabled") and item["args"][0] in AI_COMMANDS):
+                continue
+            planned = self._planned.get(item["id"])
+            if not planned or planned == WAITING or self._warmed.get(item["id"]) == planned:
+                continue
+            if now < planned <= now + WARMUP_BEFORE:
+                self._warmed[item["id"]] = planned
+                self._model_async(item.get("profile") or ".", True)
+
+    def _ai_soon(self, now: datetime) -> bool:
+        return any(
+            item.get("enabled")
+            and item["args"][0] in AI_COMMANDS
+            and (p := self._planned.get(item["id"])) not in (None, WAITING)
+            and p <= now + UNLOAD_IF_IDLE
+            for item in self.store.get("schedule", [])
+        )
+
+    def _model_async(self, profile: str, load: bool) -> None:
+        if not self.model_hook:
+            return
+
+        def run() -> None:
+            try:
+                self.model_hook(profile, load)
+                logger.info("Модель %s", "загружена" if load else "выгружена")
+            except Exception as ex:  # noqa: BLE001
+                logger.warning("Не удалось %s модель: %s", "загрузить" if load else "выгрузить", ex)
+
+        threading.Thread(target=run, name="panel-model", daemon=True).start()
 
     def _tick_resume(self, item: dict[str, Any], now: datetime) -> None:
         planned = self._planned.get(item["id"])
@@ -263,6 +308,14 @@ class Scheduler:
         return job
 
     def _on_job_finish(self, job: Job) -> None:
+        if job.args and job.args[0] in AI_COMMANDS:
+            # Модель больше не нужна в ближайшие часы: освобождаем видеокарту
+            with self._lock:
+                idle = not self._ai_soon(datetime.now()) and not self.jobs.is_running(
+                    lambda j: bool(j.args) and j.args[0] in AI_COMMANDS
+                )
+            if idle:
+                self._model_async(job.profile or ".", False)
         if not job.source.startswith("schedule:"):
             return
         item_id = job.source.split(":", 1)[1]

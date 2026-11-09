@@ -66,10 +66,39 @@ def test_fires_when_hh_allows_and_asks_again_after_finish():
     assert len(jobs.fired) == 1 and len(asked) == 1
 
     jobs.running = False
-    jobs.finish(type("Job", (), {"id": "j1", "status": "done", "source": "schedule:r"})())
+    jobs.finish(type("Job", (), {"id": "j1", "status": "done", "source": "schedule:r", "args": ["update-resumes"], "profile": "."})())
     ready[0] = NOW + timedelta(hours=5)
     s._tick(NOW + timedelta(hours=2))
     assert len(asked) == 2 and len(jobs.fired) == 1
+
+
+def test_warms_up_before_ai_job_and_unloads_when_idle(monkeypatch):
+    calls = []
+    store = Store()
+    store.data["schedule"] = [{
+        "id": "a", "name": "Отклики", "args": ["apply-vacancies"], "enabled": True,
+        "mode": "daily", "times": ["10:00"], "days": [],
+    }]
+    s = sch.Scheduler(store, Jobs(), None, lambda p, load: calls.append(load))
+    monkeypatch.setattr(s, "_model_async", lambda profile, load: calls.append(load))
+    morning = datetime(2026, 11, 10, 9, 0)
+
+    s._tick(morning)
+    assert calls == []
+    s._tick(morning + timedelta(minutes=46))
+    s._tick(morning + timedelta(minutes=50))
+    assert calls == [True]  # прогрели один раз
+
+    # Следующий запуск завтра: после задачи модель выгружаем
+    s._planned["a"] = morning + timedelta(days=1, hours=1)
+    s.jobs.running = False
+    s._on_job_finish(type("Job", (), {"args": ["apply-vacancies"], "profile": ".", "source": "manual"})())
+    assert calls == [True, False]
+
+    # Через час ещё одна задача с моделью: не выгружаем
+    s._planned["a"] = datetime.now() + timedelta(hours=1)
+    s._on_job_finish(type("Job", (), {"args": ["apply-vacancies"], "profile": ".", "source": "manual"})())
+    assert calls == [True, False]
 
 
 def test_retries_later_when_hh_fails():

@@ -65,6 +65,19 @@ class Ollama:
         except requests.RequestException as ex:
             raise OllamaError(f"Ollama недоступна по адресу {self.url}: {ex}") from ex
 
+    def keep(self, model: str, keep_alive: str | int) -> None:
+        """Загрузить модель в память на keep_alive ("3h") или выгрузить (0).
+        Загрузка большой модели с диска идёт минутами, отсюда долгий таймаут."""
+        try:
+            r = requests.post(
+                self.url + "/api/generate",
+                json={"model": model, "keep_alive": keep_alive},
+                timeout=(10, 900),
+            )
+            r.raise_for_status()
+        except requests.RequestException as ex:
+            raise OllamaError(f"Ollama не загрузила {model}: {ex}") from ex
+
     def loaded(self) -> list[dict[str, Any]]:
         """Модели, которые сейчас в памяти Ollama (видеокарта и ОЗУ)."""
         return [
