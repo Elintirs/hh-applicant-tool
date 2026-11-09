@@ -9,12 +9,15 @@ RUN addgroup -g $GID docker && \
 
 WORKDIR /app
 
+# Зависимости ставим до копирования кода: при обновлении кода этот слой
+# берется из кеша, gcc и пакеты заново из сети не качаются
 COPY pyproject.toml README.md ./
-COPY src ./src
-
-RUN apk add --no-cache --virtual .build-deps gcc musl-dev && \
+RUN mkdir -p src/hh_applicant_tool && touch src/hh_applicant_tool/__init__.py && \
+    apk add --no-cache --virtual .build-deps gcc musl-dev && \
     pip install --no-cache-dir -e '.' && \
     apk del .build-deps
+
+COPY src ./src
 
 ENV CONFIG_DIR=/config
 
