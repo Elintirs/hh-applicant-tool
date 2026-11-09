@@ -40,3 +40,15 @@ def test_ordinary_reply_sent_and_logged(tmp_path):
     assert "send_chat_message" in op.calls and "mark_chat_read" in op.calls
     [rec] = journal(tmp_path)
     assert rec["result"] == "chat_sent" and rec["reply"].startswith("Здравствуйте")
+
+
+def test_manual_by_keywords():
+    for text, manual in [
+        ("Пожалуйста, заполните анкету: https://forms.gle/x", True),
+        ("Когда вам удобно созвониться?", True),
+        ("Напишите в телеграм @hr", True),
+        ("Приглашаем на собеседование", True),
+        ("Ваше местонахождение РФ / РБ?", False),
+        ("Какой у вас опыт с NestJS?", False),
+    ]:
+        assert bool(rc.MANUAL_RE.search(text)) is manual, text

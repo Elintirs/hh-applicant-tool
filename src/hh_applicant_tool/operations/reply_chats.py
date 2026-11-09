@@ -5,6 +5,7 @@ from __future__ import annotations
 import argparse
 import logging
 import random
+import re
 import time
 import uuid
 from dataclasses import dataclass
@@ -54,6 +55,13 @@ DEFAULT_SYSTEM_PROMPT = """\
 
 # Автоответ отдаёт чат человеку: такие сообщения кандидат решает сам
 MANUAL_MARKER = "ВРУЧНУЮ"
+# Модель такие случаи пропускала, поэтому сначала проверка по словам
+MANUAL_RE = re.compile(
+    r"https?://|t\.me/|собеседован|интервью|созвон|звонок|позвон|телеграм|telegram"
+    r"|whatsapp|ватсап|анкет|гугл.?форм|google.?form|тестов\w* задан|оффер"
+    r"|предложени\w* о работе|удобн\w* (?:врем|дат|день)|слот",
+    re.I,
+)
 MANUAL_HINT = """
 
 Если последнее сообщение работодателя требует личного решения кандидата, ответь ровно одним словом ВРУЧНУЮ и больше ничего. Это: приглашение на собеседование или созвон, выбор или согласование даты и времени, просьба позвонить или написать в Telegram, WhatsApp, на почту, предложение о работе (оффер), запрос документов или личных данных, просьба заполнить анкету или форму по ссылке, тестовое задание. Вопросы о навыках, опыте, зарплате, формате работы, тестовом задании отвечай сам как обычно."""
@@ -1201,6 +1209,12 @@ class Operation(BaseOperation):
         allow_manual: модель может вернуть MANUAL_MARKER, если ответ должен
         дать сам кандидат (собеседование, звонок, оффер)."""
         self.last_ai_call = None
+        if (
+            allow_manual
+            and not chat.last_is_mine
+            and MANUAL_RE.search(chat.last_message_text or "")
+        ):
+            return MANUAL_MARKER
         reply_options = self.get_reply_options(chat.last_message)
         placeholders = self.get_chat_placeholders(chat)
         assert type(chat.chat_id) is int
