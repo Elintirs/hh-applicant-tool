@@ -1203,7 +1203,10 @@ class Operation(BaseOperation):
         append_journal(self.tool.config_dir_path, {**rec, "result": "chat_sent"})
 
     def get_ai_reply(
-        self, chat: ProcessingChat, allow_manual: bool = False
+        self,
+        chat: ProcessingChat,
+        allow_manual: bool = False,
+        use_options: bool = True,
     ) -> str | None:
         """Ответ нейронки. None — отвечать в этот раз не нужно.
         allow_manual: модель может вернуть MANUAL_MARKER, если ответ должен
@@ -1215,7 +1218,11 @@ class Operation(BaseOperation):
             and MANUAL_RE.search(chat.last_message_text or "")
         ):
             return MANUAL_MARKER
-        reply_options = self.get_reply_options(chat.last_message)
+        # use_options=False: черновик в панели пишет текстом, кнопки там
+        # показаны отдельно. Автоответ жмёт кнопку: роботы ждут именно её
+        reply_options = (
+            self.get_reply_options(chat.last_message) if use_options else []
+        )
         placeholders = self.get_chat_placeholders(chat)
         assert type(chat.chat_id) is int
 

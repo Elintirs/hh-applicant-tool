@@ -416,7 +416,7 @@ class HHService:
             chat = self._chat_cache.get(chat_id)
             if chat is None:
                 raise RuntimeError("Обновите список чатов и попробуйте снова")
-            text = op.get_ai_reply(chat)
+            text = op.get_ai_reply(chat, use_options=False)
             self._done()
         if not text:
             raise RuntimeError("Модель не предложила ответ")
