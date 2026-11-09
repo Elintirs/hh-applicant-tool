@@ -1,6 +1,6 @@
 import { get, post } from "../api.js";
 import {
-  h, mount, button, textarea, toast, busy, empty, skeleton, errorState, pageHeader, segmented,
+  h, mount, clear, button, textarea, toast, busy, empty, skeleton, errorState, pageHeader, segmented,
   relTime, confirmDialog,
 } from "../ui.js";
 
@@ -14,6 +14,13 @@ const STATE = {
 };
 
 function when(s) { const t = Date.parse(s); return isNaN(t) ? "" : relTime(t / 1000); }
+
+function bubble(m) {
+  return h("div", { class: `bubble ${m.mine ? "is-mine" : ""}` },
+    !m.mine ? h("div", { class: "bubble-author" }, m.author || "Работодатель", m.is_bot ? h("span", { class: "badge plain" }, "бот") : null) : null,
+    h("div", { class: "bubble-text" }, m.text || "Без текста"),
+    h("div", { class: "bubble-time" }, when(m.at)));
+}
 
 export default async function chats(root, ctx) {
   let filter = ctx.params.get("unread") === "1" ? "unread" : "all";
@@ -71,11 +78,7 @@ export default async function chats(root, ctx) {
     if (c.unread) { c.unread = 0; renderList(); }
 
     const thread = h("div", { class: "chat-thread", tabindex: "0", "aria-label": "Сообщения" },
-      data.messages.length ? data.messages.map((m) => h("div", { class: `bubble ${m.mine ? "is-mine" : ""}` },
-        !m.mine ? h("div", { class: "bubble-author" }, m.author || "Работодатель", m.is_bot ? h("span", { class: "badge plain" }, "бот") : null) : null,
-        h("div", { class: "bubble-text" }, m.text || "Без текста"),
-        h("div", { class: "bubble-time" }, when(m.at))))
-        : h("p", { class: "muted" }, "Сообщений нет."));
+      data.messages.length ? data.messages.map(bubble) : h("p", { class: "muted" }, "Сообщений нет."));
 
     const composer = textarea({ rows: 3, placeholder: data.writable ? "Сообщение" : "В этот чат писать нельзя", disabled: !data.writable, "aria-label": "Сообщение" });
     const send = button("Отправить", { variant: "primary", iconName: "send", disabled: !data.writable });
@@ -85,8 +88,19 @@ export default async function chats(root, ctx) {
 
     send.addEventListener("click", () => busy(send, async () => {
       if (!composer.value.trim()) { composer.focus(); return; }
-      try { await post(`chats/${id}/send`, { text: composer.value }); composer.value = ""; toast("Сообщение отправлено"); await load(); renderList(); open(id); }
-      catch (err) { toast(err.message, "error"); }
+      const text = composer.value;
+      try { await post(`chats/${id}/send`, { text }); }
+      catch (err) { toast(err.message, "error"); return; }
+      // Без перезагрузки: дописываем пузырь и обновляем строку в списке
+      composer.value = "";
+      if (!data.messages.length) clear(thread);
+      thread.appendChild(bubble({ mine: true, text, at: new Date().toISOString() }));
+      thread.scrollTop = thread.scrollHeight;
+      Object.assign(c, { last_text: text, last_is_mine: true, last_at: new Date().toISOString() });
+      data.messages.push({ mine: true, text });
+      list = [c, ...list.filter((x) => x.id !== id)];
+      renderList();
+      composer.focus();
     }));
     composer.addEventListener("keydown", (e) => { if ((e.metaKey || e.ctrlKey) && e.key === "Enter") send.click(); });
     draft.addEventListener("click", () => busy(draft, async () => {
