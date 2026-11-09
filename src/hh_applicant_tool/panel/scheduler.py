@@ -7,10 +7,11 @@
     {
       "id": "...", "name": "Поднять резюме", "args": ["update-resumes"],
       "enabled": true,
-      "mode": "daily" | "interval",
+      "mode": "daily" | "interval" | "resume",
       "times": ["09:00", "18:30"],   # для daily
       "days": [0, 1, 2, 3, 4],       # 0 = понедельник, пусто = каждый день
       "every_minutes": 240,          # для interval
+      # resume: запуск, как только hh разрешит поднять резюме (next_publish_at)
       "last_run_at": ..., "last_job_id": ..., "last_status": ...
     }
 
@@ -26,7 +27,7 @@ import threading
 import time
 import uuid
 from datetime import datetime, timedelta
-from typing import Any
+from typing import Any, Callable
 
 from .runner import Job, JobManager
 from .store import PanelStore
@@ -36,6 +37,10 @@ logger = logging.getLogger(__name__)
 TICK_SECONDS = 15
 MISSED_GRACE = timedelta(minutes=10)
 MIN_INTERVAL_MINUTES = 5
+RESUME_RETRY = timedelta(minutes=15)
+RESUME_SLACK = timedelta(seconds=30)
+# Запуск в режиме resume ушёл, ждём его окончания, hh не спрашиваем
+WAITING = datetime.max
 TIME_RE = re.compile(r"^([01]?\d|2[0-3]):([0-5]\d)$")
 
 
@@ -83,7 +88,7 @@ def normalize(item: dict[str, Any]) -> dict[str, Any]:
                 f"Интервал не меньше {MIN_INTERVAL_MINUTES} минут"
             )
         out["every_minutes"] = every
-    else:
+    elif mode != "resume":
         raise ScheduleError("Неизвестный режим расписания")
     for key in ("last_run_at", "last_job_id", "last_status"):
         if key in item:
@@ -92,7 +97,8 @@ def normalize(item: dict[str, Any]) -> dict[str, Any]:
 
 
 def next_run(item: dict[str, Any], after: datetime) -> datetime | None:
-    if not item.get("enabled"):
+    # resume планирует сам Scheduler по ответу hh
+    if not item.get("enabled") or item["mode"] == "resume":
         return None
     if item["mode"] == "interval":
         last = item.get("last_run_at")
@@ -116,9 +122,16 @@ def next_run(item: dict[str, Any], after: datetime) -> datetime | None:
 
 
 class Scheduler:
-    def __init__(self, store: PanelStore, jobs: JobManager) -> None:
+    def __init__(
+        self,
+        store: PanelStore,
+        jobs: JobManager,
+        resume_ready_at: Callable[[str], datetime | None] | None = None,
+    ) -> None:
         self.store = store
         self.jobs = jobs
+        # profile -> когда hh разрешит поднять резюме (None: поднимать нечего)
+        self.resume_ready_at = resume_ready_at
         self._stop = threading.Event()
         self._lock = threading.Lock()
         # Для каждой задачи помним, на какое время она уже стоит в плане,
@@ -133,6 +146,8 @@ class Scheduler:
         now = datetime.now()
         for item in items:
             nr = self._planned.get(item["id"]) or next_run(item, now)
+            if nr == WAITING:
+                nr = None
             item["next_run_at"] = nr.timestamp() if nr and item.get("enabled") else None
             item["busy"] = self.jobs.is_running(
                 lambda j, i=item["id"]: j.source == f"schedule:{i}"
@@ -180,6 +195,9 @@ class Scheduler:
                 if not item.get("enabled"):
                     self._planned.pop(item["id"], None)
                     continue
+                if item["mode"] == "resume":
+                    self._tick_resume(item, now)
+                    continue
                 planned = self._planned.get(item["id"])
                 if planned is None:
                     planned = next_run(item, now - MISSED_GRACE)
@@ -205,6 +223,26 @@ class Scheduler:
                         {**item, "last_run_at": None}, after
                     ) if item["mode"] == "daily" else after
 
+    def _tick_resume(self, item: dict[str, Any], now: datetime) -> None:
+        planned = self._planned.get(item["id"])
+        if planned is None:
+            # hh спрашиваем только тут: при старте и после каждого запуска
+            try:
+                ready = self.resume_ready_at(item.get("profile") or ".")
+            except Exception as ex:  # noqa: BLE001
+                logger.warning("Не узнал, когда поднимать резюме: %s", ex)
+                ready = None
+            planned = ready + RESUME_SLACK if ready else now + RESUME_RETRY
+            self._planned[item["id"]] = planned
+        if planned > now:
+            return
+        busy = self.jobs.is_running(
+            lambda j, i=item["id"]: j.source == f"schedule:{i}"
+        )
+        if not busy:
+            self._fire(item)
+            self._planned[item["id"]] = WAITING
+
     def _fire(self, item: dict[str, Any]) -> Job:
         job = self.jobs.submit(
             item["args"],
@@ -228,6 +266,9 @@ class Scheduler:
         if not job.source.startswith("schedule:"):
             return
         item_id = job.source.split(":", 1)[1]
+        with self._lock:
+            if self._planned.get(item_id) == WAITING:
+                del self._planned[item_id]
 
         def mark(items):
             for i in items or []:

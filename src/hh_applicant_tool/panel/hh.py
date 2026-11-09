@@ -202,6 +202,23 @@ class HHService:
             )
         return out
 
+    def resume_ready_at(self) -> datetime | None:
+        """Когда hh разрешит поднять хотя бы одно опубликованное резюме
+        (локальное время без пояса). None: опубликованных резюме нет."""
+        times = []
+        for r in self.resumes():
+            if r["status_id"] != "published":
+                continue
+            if r["can_publish_or_update"]:
+                return datetime.now()
+            if r["next_publish_at"]:
+                times.append(
+                    datetime.strptime(r["next_publish_at"], "%Y-%m-%dT%H:%M:%S%z")
+                    .astimezone()
+                    .replace(tzinfo=None)
+                )
+        return min(times, default=None)
+
     def resume(self, resume_id: str) -> dict[str, Any]:
         with self.lock:
             tool = self._require_login()

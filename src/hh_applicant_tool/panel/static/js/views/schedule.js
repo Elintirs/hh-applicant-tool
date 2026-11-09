@@ -9,7 +9,7 @@ const DAYS = ["Пн", "Вт", "Ср", "Чт", "Пт", "Сб", "Вс"];
 
 // Готовые задачи: то, что обычно запускают по расписанию
 const PRESETS = [
-  { name: "Поднять резюме", args: ["update-resumes"], mode: "interval", every_minutes: 240 },
+  { name: "Поднять резюме", args: ["update-resumes"], mode: "resume" },
   { name: "Отклики на вакансии", args: ["apply-vacancies", "--max-responses=50"], mode: "daily", times: ["10:00"], days: [0, 1, 2, 3, 4] },
   { name: "Автоответчик в чатах", args: ["reply-chats"], mode: "interval", every_minutes: 60 },
   { name: "Почистить отказы", args: ["clear-negotiations"], mode: "daily", times: ["23:00"], days: [6] },
@@ -30,6 +30,7 @@ function splitArgs(text) {
 }
 
 function describe(item) {
+  if (item.mode === "resume") return "сразу, как hh разрешит поднять резюме";
   if (item.mode === "interval") {
     const m = item.every_minutes;
     return m % 60 === 0 ? `каждые ${m / 60} ч` : `каждые ${m} мин`;
@@ -80,9 +81,11 @@ export default async function schedule(root, ctx) {
       h("div", { class: "field" }, h("span", { class: "field-label" }, "Дни"), dayChips));
     const intervalBox = h("div", { class: "form-grid" },
       field({ label: "Интервал, минут", control: every, help: "Не меньше 5 минут. Первый запуск сразу после сохранения." }));
+    const resumeBox = h("p", { class: "card-hint" },
+      "Панель узнаёт у hh, когда резюме можно поднять (раз в 4 часа), и запускает задачу в эту минуту. Подходит для update-resumes.");
     let mode = d.mode || "daily";
-    const syncMode = () => { dailyBox.hidden = mode !== "daily"; intervalBox.hidden = mode !== "interval"; };
-    const modeCtl = segmented([["daily", "По времени"], ["interval", "С интервалом"]], mode, (m) => { mode = m; syncMode(); }, "Режим");
+    const syncMode = () => { dailyBox.hidden = mode !== "daily"; intervalBox.hidden = mode !== "interval"; resumeBox.hidden = mode !== "resume"; };
+    const modeCtl = segmented([["daily", "По времени"], ["interval", "Интервал"], ["resume", "По hh"]], mode, (m) => { mode = m; syncMode(); }, "Режим");
     syncMode();
 
     const saveBtn = button("Сохранить", { variant: "primary" });
@@ -107,7 +110,7 @@ export default async function schedule(root, ctx) {
           field({ label: "Название", control: name }),
           field({ label: "Команда", control: cmd, help: "Аргументы как в терминале, без hh-applicant-tool." })),
         h("div", { class: "row" }, modeCtl),
-        dailyBox, intervalBox, error),
+        dailyBox, intervalBox, resumeBox, error),
       h("div", { class: "card-footer" }, button("Отмена", { variant: "ghost", onClick: () => { editing = null; draft = null; render(); } }), saveBtn));
   }
 

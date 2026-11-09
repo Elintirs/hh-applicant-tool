@@ -85,7 +85,11 @@ class PanelApp:
         # Заполняет serve(): как панель доступна снаружи
         self.net: dict[str, Any] = {"host": "127.0.0.1", "port": 0, "tls": False}
         self.jobs = JobManager(self.store, base_dir)
-        self.scheduler = Scheduler(self.store, self.jobs)
+        self.scheduler = Scheduler(
+            self.store,
+            self.jobs,
+            lambda profile: self.ctx(profile).service.resume_ready_at(),
+        )
         self.broker = CaptchaBroker()
         self._schema: dict[str, Any] | None = None
         self._ctx: dict[str, ProfileCtx] = {}
