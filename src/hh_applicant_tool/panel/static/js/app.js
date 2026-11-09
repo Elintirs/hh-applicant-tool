@@ -9,6 +9,7 @@ import resumes from "./views/resumes.js";
 import run from "./views/run.js";
 import jobs from "./views/jobs.js";
 import schedule from "./views/schedule.js";
+import journal from "./views/journal.js";
 import models from "./views/models.js";
 import texts from "./views/texts.js";
 import config from "./views/config.js";
@@ -29,6 +30,7 @@ const ROUTES = [
   { path: "run", title: "Запуск", icon: "play", view: run },
   { path: "jobs", title: "Задачи", icon: "terminal", view: jobs, counter: "jobs" },
   { path: "schedule", title: "Расписание", icon: "clock", view: schedule },
+  { path: "journal", title: "Журнал AI", icon: "sparkle", view: journal },
   { section: "Настройки" },
   { path: "models", title: "Модели", icon: "cpu", view: models },
   { path: "texts", title: "Тексты", icon: "mail", view: texts },
@@ -144,7 +146,9 @@ function shell() {
         h("div", { class: "brand-name" }, "Панель соискателя"),
         h("div", { class: "brand-version" }, state.info ? `hh-applicant-tool ${state.info.version}` : ""))),
     accountHost, nav,
-    h("div", { class: "sidebar-footer" }, themeButton(), state.info && state.info.auth_required ? h("div", { class: "subtle" }, "Доступ по токену") : null));
+    h("div", { class: "sidebar-footer" },
+      h("a", { class: "subtle model-status", id: "model-status", href: "#/models", hidden: true }),
+      themeButton(), state.info && state.info.auth_required ? h("div", { class: "subtle" }, "Доступ по токену") : null));
 
   const menuBtn = button("", { variant: "ghost", iconName: "menu", title: "Меню", onClick: () => app.classList.toggle("nav-open"), attrs: { "aria-controls": "sidebar" } });
   const topbar = h("div", { class: "topbar" }, menuBtn, h("span", { class: "topbar-title", id: "topbar-title" }, ""));
@@ -209,6 +213,21 @@ async function refreshRunning() {
   } catch { /* не мешаем основному экрану */ }
 }
 
+// Какая модель сейчас в видеокарте: видно, что Ollama жива и что грузится
+async function refreshModel() {
+  const el = document.getElementById("model-status");
+  if (!el) return;
+  try {
+    const r = await get("ollama/ps");
+    const gb = (b) => (b / 2 ** 30).toFixed(1).replace(".", ",");
+    el.hidden = false;
+    el.textContent = !r.ok ? "🧠 Ollama недоступна"
+      : r.models.length ? r.models.map((m) => `🧠 ${m.name} · ${gb(m.size_vram || 0)} ГБ`).join("\n")
+      : "🧠 Модель не загружена";
+    el.title = r.ok ? "Модели в памяти Ollama" : r.error;
+  } catch { el.hidden = true; }
+}
+
 async function refreshUpdates() {
   try {
     const u = await get("updates");
@@ -261,7 +280,8 @@ async function start() {
   refreshRunning();
   refreshUpdates();
   state.timers.forEach(clearInterval);
-  state.timers = [setInterval(refreshRunning, 5000), setInterval(refreshAccount, 120000)];
+  refreshModel();
+  state.timers = [setInterval(refreshRunning, 5000), setInterval(refreshAccount, 120000), setInterval(refreshModel, 15000)];
   startPrompts({ onAnswered: refreshRunning });
 }
 

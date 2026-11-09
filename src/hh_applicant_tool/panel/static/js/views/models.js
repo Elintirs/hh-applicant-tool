@@ -11,7 +11,8 @@ const FIELDS = [
 ];
 const ADVANCED = [
   { key: "temperature", label: "Температура", type: "number", step: "0.1" },
-  { key: "max_completion_tokens", label: "Лимит токенов ответа", type: "number" },
+  { key: "max_completion_tokens", label: "Лимит токенов ответа", type: "number", help: "У думающих моделей сюда входят и рассуждения: для gpt-oss нужно 2000+." },
+  { key: "reasoning_effort", label: "Рассуждения", example: "low", help: "none, low, medium или high. none отключает рассуждения у qwen3, у gpt-oss минимум low." },
   { key: "timeout", label: "Таймаут, с", type: "number" },
   { key: "connect_timeout", label: "Таймаут соединения, с", type: "number" },
   { key: "delay", label: "Пауза между запросами, с", type: "number", step: "0.1" },

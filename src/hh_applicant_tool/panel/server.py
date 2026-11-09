@@ -32,6 +32,7 @@ import requests
 from ..ai.base import AIError
 from ..api.errors import ApiError as HHApiError
 from ..errors import OperationError
+from ..operations import apply_vacancies as av
 from ..utils.package import PACKAGE_NAME, get_package_version, parse_version
 from ..utils.system import is_docker
 from .hh import CaptchaBroker, HHService, friendly_error
@@ -469,6 +470,31 @@ def make_handler(app: PanelApp) -> type[BaseHTTPRequestHandler]:
     @route("GET", "ollama")
     def ollama_status(h: Handler) -> None:
         h.json(app.ollama.status())
+
+    @route("GET", "journal")
+    def journal(h: Handler) -> None:
+        # Последние записи журнала откликов, новые сверху
+        path = app.ctx().dir / av.JOURNAL_FILENAME
+        try:
+            limit = min(500, max(1, int(h.query.get("limit") or 100)))
+        except ValueError:
+            limit = 100
+        items: list[Any] = []
+        if path.exists():
+            # shortcut: читаем файл целиком, при десятках МБ перейти на чтение с конца
+            for line in path.read_text(encoding="utf-8").splitlines()[-limit:]:
+                try:
+                    items.append(json.loads(line))
+                except ValueError:
+                    continue
+        h.json({"items": items[::-1], "path": str(path)})
+
+    @route("GET", "ollama/ps")
+    def ollama_ps(h: Handler) -> None:
+        try:
+            h.json({"ok": True, "models": app.ollama.loaded()})
+        except OllamaError as ex:
+            h.json({"ok": False, "error": str(ex), "models": []})
 
     @route("PUT", "ollama")
     def ollama_url(h: Handler) -> None:

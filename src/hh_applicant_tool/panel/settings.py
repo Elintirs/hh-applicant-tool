@@ -70,6 +70,7 @@ AI_FIELDS = [
     "api_key",
     "temperature",
     "max_completion_tokens",
+    "reasoning_effort",
     "timeout",
     "connect_timeout",
     "delay",
@@ -310,6 +311,8 @@ class Settings:
             "timeout": s.get("timeout") or 180,
             "connect_timeout": s.get("connect_timeout") or 10,
         }
+        if s.get("reasoning_effort"):
+            kwargs["reasoning_effort"] = s["reasoning_effort"]
         started = time.monotonic()
         try:
             if image is not None:

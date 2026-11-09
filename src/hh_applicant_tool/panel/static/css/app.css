@@ -80,6 +80,12 @@ svg { flex-shrink: 0; }
 }
 
 .sidebar-footer { margin-top: auto; padding-top: var(--space-4); display: flex; flex-direction: column; gap: var(--space-2); }
+.ai-call { border: 1px solid var(--color-border); border-radius: var(--radius-md); padding: var(--space-2) var(--space-3); }
+.ai-call summary { cursor: pointer; display: flex; flex-wrap: wrap; gap: var(--space-2); }
+.ai-brief { overflow-wrap: anywhere; }
+.ai-part { margin-top: var(--space-2); }
+.ai-text { white-space: pre-wrap; overflow-wrap: anywhere; max-height: 24rem; overflow: auto; margin: 0; padding: var(--space-2); background: var(--color-surface-hover); border-radius: var(--radius-md); }
+.model-status { white-space: pre-line; text-decoration: none; overflow-wrap: anywhere; }
 
 .main { min-width: 0; display: flex; flex-direction: column; }
 .topbar { display: none; }

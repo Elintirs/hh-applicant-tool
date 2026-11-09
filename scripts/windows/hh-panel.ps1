@@ -108,6 +108,9 @@ switch ($Command) {
     "update" {
         Wait-Docker
         & $Docker @Compose up -d --build
+        # Упавшая сборка оставляет старый контейнер работать: не делаем вид,
+        # что обновились
+        if ($LASTEXITCODE -ne 0) { Say "Сборка не удалась, работает прежняя версия" "Red"; exit 1 }
         Wait-Panel
         Show-Status
     }

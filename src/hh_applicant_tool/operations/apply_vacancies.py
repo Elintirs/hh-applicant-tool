@@ -621,13 +621,15 @@ class Operation(BaseOperation):
         prompt = render_template(
             self.ai_filter_prompt, placeholders, "промпта AI-фильтра"
         )
-        response, meta = self._ai_call(self.vacancy_filter_ai, prompt)
+        response, meta = self._ai_call(
+            self.vacancy_filter_ai, prompt, "фильтр"
+        )
         logger.debug("AI ответ фильтра: %s", response)
         suitable = self._parse_is_suitable_response(response)
         self._note(
             vacancy_experience=placeholders.get("vacancy_experience"),
             vacancy_skills=placeholders.get("vacancy_skills"),
-            ai_filter={"answer": response[:200], "suitable": suitable, **meta},
+            ai_filter={"suitable": suitable, **meta},
         )
         return suitable
 
@@ -802,14 +804,23 @@ class Operation(BaseOperation):
         except OSError as ex:
             logger.warning("Не записал журнал откликов: %s", ex)
 
-    def _ai_call(self, chat: OpenAIChat, prompt: str) -> tuple[str, dict]:
-        """Запрос к модели + сведения для журнала: модель и время."""
+    def _ai_call(
+        self, chat: OpenAIChat, prompt: str, what: str
+    ) -> tuple[str, dict]:
+        """Запрос к модели + сведения для журнала: модель и время.
+        Строка в выводе, чтобы в логе задачи было видно работу модели."""
         start = time.monotonic()
         answer = chat.complete(prompt)
-        return answer, {
+        meta = {
             "model": chat.model or chat.client.model,
             "sec": round(time.monotonic() - start, 1),
+            "system": chat.system_prompt,
+            "prompt": prompt,
+            "answer": answer,
         }
+        brief = shorten(" ".join(answer.split()), 60)
+        print(f"🧠 {meta['model']} · {what}: {brief} · {meta['sec']} с")
+        return answer, meta
 
     def _max_responses_reached(self, state: _ApplyState) -> bool:
         if self.max_responses and state.applied_count >= self.max_responses:
@@ -1006,7 +1017,9 @@ class Operation(BaseOperation):
                 "промпта сопроводительного письма",
             )
             logger.debug("prompt: %s", prompt)
-            letter, meta = self._ai_call(self.cover_letter_ai, prompt)
+            letter, meta = self._ai_call(
+                self.cover_letter_ai, prompt, "письмо"
+            )
             self._note(letter_ai=meta)
         else:
             template = self._match_letter_template(vacancy)
@@ -1256,7 +1269,7 @@ class Operation(BaseOperation):
                         },
                         "промпта выбора ответа в тесте",
                     )
-                    answer, meta = self._ai_call(self.test_ai, prompt)
+                    answer, meta = self._ai_call(self.test_ai, prompt, "тест")
                     answer = answer.strip(". ")
                     logger.debug("AI ответ (выбор): %.255s", answer)
                     # Берём только ID, который реально есть среди вариантов
@@ -1300,7 +1313,7 @@ class Operation(BaseOperation):
                         {**placeholders, "question": question},
                         "промпта текстового ответа в тесте",
                     )
-                    answer, meta = self._ai_call(self.test_ai, prompt)
+                    answer, meta = self._ai_call(self.test_ai, prompt, "тест")
                     ## добавляем ответ AI на вопрос теста##
                     logger.debug("AI ответ: %.255s", answer)
                 elif "://" in question:

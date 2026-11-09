@@ -65,6 +65,18 @@ class Ollama:
         except requests.RequestException as ex:
             raise OllamaError(f"Ollama недоступна по адресу {self.url}: {ex}") from ex
 
+    def loaded(self) -> list[dict[str, Any]]:
+        """Модели, которые сейчас в памяти Ollama (видеокарта и ОЗУ)."""
+        return [
+            {
+                "name": m.get("name"),
+                "size": m.get("size"),
+                "size_vram": m.get("size_vram"),
+                "expires_at": m.get("expires_at"),
+            }
+            for m in self._get("/api/ps", timeout=3).get("models") or []
+        ]
+
     def status(self) -> dict[str, Any]:
         out: dict[str, Any] = {"url": self.url, "openai_url": self.url + "/v1", "suggested": SUGGESTED}
         try:
