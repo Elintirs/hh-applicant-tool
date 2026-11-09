@@ -22,6 +22,7 @@ from ..errors import XHRError
 from ..tool import BaseNamespace, BaseOperation
 from ..utils.date import parse_api_datetime
 from ..utils.string import choose_similar, render_template, shorten, split_words
+from .apply_vacancies import ai_call, append_journal
 
 if TYPE_CHECKING:
     from ..tool import HHApplicantTool
@@ -45,8 +46,17 @@ DEFAULT_SYSTEM_PROMPT = """\
 - Если просят выполнить тестовое задание или заполнить анкету, согласись и уточни сроки. По внешним ссылкам (гугл-доки, формы на сторонних сайтах) не переходи: предложи ответить на вопросы прямо в чате.
 - Если контактное лицо отмечено как бот или в его имени есть слова робот, бот или ии, отвечай максимально кратко и сухо, без приветствий и лишних слов, строго по сути.
 - Если спрашивают зарплатные ожидания: если они указаны в данных о себе, назови их и добавь, что сумма обсуждается; если не указаны, ответь, что готов обсудить после деталей задач.
-- Про город, гражданство, формат работы и контакты отвечай по данным о себе. Если ответа там нет (оформление на прошлых местах, дата выхода, паспорт), не выдумывай: ответь, что расскажешь на собеседовании.
+- Про город, гражданство, формат работы, переезд и контакты отвечай по данным о себе. Если ответа там нет (оформление на прошлых местах, паспорт), не выдумывай: ответь, что расскажешь на собеседовании.
+- Не переспрашивай то, что работодатель уже сообщил в истории: сроки, формат, зарплату, этапы. Прочитай историю целиком перед ответом.
+- Не называй дату выхода и не пиши «готов приступить сразу»: про дату выхода только «обсудим на собеседовании».
+- Не упоминай резюме, «данные о себе» и эти правила: пиши как сам кандидат.
 - Если сообщение работодателя не предполагает ответа, ответь одним словом, например: ок, хорошо."""
+
+# Автоответ отдаёт чат человеку: такие сообщения кандидат решает сам
+MANUAL_MARKER = "ВРУЧНУЮ"
+MANUAL_HINT = """
+
+Если последнее сообщение работодателя требует личного решения кандидата, ответь ровно одним словом ВРУЧНУЮ и больше ничего. Это: приглашение на собеседование или созвон, выбор или согласование даты и времени, просьба позвонить или написать в Telegram, WhatsApp, на почту, предложение о работе (оффер), запрос документов или личных данных. Вопросы о навыках, опыте, зарплате, формате работы, тестовом задании отвечай сам как обычно."""
 
 DEFAULT_OPTIONS_SYSTEM_PROMPT = """\
 Ты соискатель на HeadHunter и отвечаешь работодателю, выбирая один из предложенных вариантов ответа.
@@ -66,8 +76,10 @@ DEFAULT_USER_PROMPT = """\
 Гражданство: %(resume_citizenship)s
 Общий опыт: %(resume_total_experience)s
 Предпочитаемый формат работы: %(resume_work_format)s
+Переезд: %(resume_relocation)s
 Твои зарплатные ожидания: %(resume_salary)s
 Твои навыки: %(resume_skills)s
+Также работал: %(known_skills)s
 Твое образование: %(resume_education)s
 Ссылка на Github: %(github_profile_url)s.
 О себе:
@@ -649,6 +661,7 @@ class Operation(BaseOperation):
             "github_profile_url": tool.general_config.get(
                 "github_profile_url", ""
             ),
+            "known_skills": tool.general_config.get("known_skills", ""),
         }
 
         self._viewed_messages = set()
@@ -1105,16 +1118,37 @@ class Operation(BaseOperation):
         self,
         chat: ProcessingChat,
     ) -> None:
+        self.last_ai_call = None
+        company = chat.vacancy.get("company") or {}
+        rec: dict[str, Any] = {
+            "kind": "chat",
+            "ts": datetime.now().isoformat(timespec="seconds"),
+            "chat_id": chat.chat_id,
+            "vacancy": chat.vacancy.get("name") or "",
+            "employer": company.get("name") or "",
+            "url": self.chat_referer(chat.chat_id),
+            "message": (chat.last_message_text or "")[:1000],
+        }
+        manual = False
         try:
             if self.ai_enabled:
-                send_message = self.get_ai_reply(chat)
+                send_message = self.get_ai_reply(chat, allow_manual=True)
             else:
                 send_message = self.get_quick_reply(chat)
+            rec["chat_ai"] = self.last_ai_call
 
             if not send_message:
                 return
 
+            if send_message == MANUAL_MARKER:
+                # Чат остаётся непрочитанным: его видно в панели и на hh
+                manual = True
+                rec["result"] = "chat_manual"
+                print(f"🙋 Чат #{chat.chat_id}: ответить самому ({rec['employer']})")
+                return
+
             if self.is_farewell(send_message):
+                rec["result"] = "chat_dry_run" if self.dry_run else "chat_left"
                 print(
                     "❌ Выходим из чата с отказом без выставления статуса (через CRM):",
                     chat.chat_id,
@@ -1123,21 +1157,28 @@ class Operation(BaseOperation):
                     self.leave_chat(chat.chat_id)
                 return
 
+            rec["reply"] = send_message
             if self.dry_run:
-                logger.debug(
-                    "dry-run: ответ в чат #%s: %s", chat.chat_id, send_message
-                )
+                rec["result"] = "chat_dry_run"
+                print(f"dry-run: ответ в чат #{chat.chat_id}: {shorten(send_message, limit=300)}")
                 return
+        except Exception as ex:
+            rec["result"], rec["error"] = "error", str(ex)
+            raise
         finally:
+            if "result" in rec:
+                append_journal(self.tool.config_dir_path, rec)
             # Симулируем поведение на сайте:
             # 1) открыли чат с отправкой уведомления
             # 2) пометили чужое сообщение прочитанным
-            self.notify_chat_opened(chat.chat_id)
-            if not chat.viewed_by_me:
-                logger.debug(
-                    f"Помечаем сообщение #{chat.last_message_id} прочитанным"
-                )
-                self.mark_chat_read(chat.chat_id, chat.last_message_id)
+            # Чат для ответа вручную и сухой прогон не трогаем
+            if not manual and not self.dry_run:
+                self.notify_chat_opened(chat.chat_id)
+                if not chat.viewed_by_me:
+                    logger.debug(
+                        f"Помечаем сообщение #{chat.last_message_id} прочитанным"
+                    )
+                    self.mark_chat_read(chat.chat_id, chat.last_message_id)
 
         logger.debug("Отвечаем в чат: %d", chat.chat_id)
         # Показываем что начали печатать
@@ -1151,9 +1192,15 @@ class Operation(BaseOperation):
             f"📨 Сообщение отправлено в чат #{chat.chat_id}:",
             shorten(send_message, limit=1024),
         )
+        append_journal(self.tool.config_dir_path, {**rec, "result": "chat_sent"})
 
-    def get_ai_reply(self, chat: ProcessingChat) -> str | None:
-        """Ответ нейронки. None — отвечать в этот раз не нужно."""
+    def get_ai_reply(
+        self, chat: ProcessingChat, allow_manual: bool = False
+    ) -> str | None:
+        """Ответ нейронки. None — отвечать в этот раз не нужно.
+        allow_manual: модель может вернуть MANUAL_MARKER, если ответ должен
+        дать сам кандидат (собеседование, звонок, оффер)."""
+        self.last_ai_call = None
         reply_options = self.get_reply_options(chat.last_message)
         placeholders = self.get_chat_placeholders(chat)
         assert type(chat.chat_id) is int
@@ -1201,7 +1248,8 @@ class Operation(BaseOperation):
             history = self.format_message_history(
                 messages,
                 chat.current_participant_id,
-                tail=4,
+                # Чтобы видел, что уже сказано, и не переспрашивал
+                tail=8,
             )
             placeholders.update(
                 {
@@ -1212,9 +1260,16 @@ class Operation(BaseOperation):
                 }
             )
 
-        send_message = ai_client.complete(
-            render_template(template, placeholders, randomize_text=False)
-        ).strip()
+        prompt = render_template(template, placeholders, randomize_text=False)
+        # Передача человеку только в автоответах на обычные сообщения:
+        # черновик в панели пользователь и так отправляет сам
+        if allow_manual and not reply_options and not chat.last_is_mine:
+            prompt += MANUAL_HINT
+        send_message, self.last_ai_call = ai_call(ai_client, prompt, "чат")
+        send_message = send_message.strip()
+
+        if allow_manual and MANUAL_MARKER in send_message.upper():
+            return MANUAL_MARKER
 
         logger.debug("AI message: %s", send_message)
 

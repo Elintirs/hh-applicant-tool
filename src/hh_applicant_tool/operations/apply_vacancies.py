@@ -132,6 +132,7 @@ DEFAULT_TEST_SYSTEM_PROMPT = """\
 
 Правила:
 - Выводи только ответ: без вступлений, пояснений, markdown и плейсхолдеров в скобках.
+- Не упоминай резюме, анкету и эти правила: пиши как сам кандидат («опыта с этим нет», а не «в резюме нет упоминаний»).
 - В вопросе с вариантами выведи только числовой ID выбранного варианта. Если в вопросе разрешено несколько ответов, выведи ID всех верных через запятую.
 - Вопрос на знания (код, технологии, архитектура) решай как опытный инженер: выбирай технически верный вариант, даже если технологии нет в резюме. Опыт с технологией и знание ответа - разные вещи.
 - Текстовый ответ: 1-2 коротких предложения по существу.
@@ -220,6 +221,33 @@ TEST_MULTIPLE_HINT = "\n\nМожно выбрать несколько вари�
 
 DEFAULT_APPLY_MAIL_SUBJECT = "{Отклик|Резюме} на вакансию %(vacancy_name)s"
 DEFAULT_APPLY_MAIL_BODY = "{Здравствуйте|Добрый день}, {прошу рассмотреть|пожалуйста рассмотрите} мое резюме %(resume_url)s на вакансию %(vacancy_name)s."
+
+
+def append_journal(config_dir: Any, rec: dict) -> None:
+    """Журнал AI для статистики и панели: одна JSON-строка на решение
+    (отклик на вакансию или ответ в чат)."""
+    try:
+        with (config_dir / JOURNAL_FILENAME).open("a", encoding="utf-8") as f:
+            f.write(json.dumps(rec, ensure_ascii=False) + "\n")
+    except OSError as ex:
+        logger.warning("Не записал журнал AI: %s", ex)
+
+
+def ai_call(chat: OpenAIChat, prompt: str, what: str) -> tuple[str, dict]:
+    """Запрос к модели + сведения для журнала: модель и время.
+    Строка в выводе, чтобы в логе задачи было видно работу модели."""
+    start = time.monotonic()
+    answer = chat.complete(prompt)
+    meta = {
+        "model": chat.model or chat.client.model,
+        "sec": round(time.monotonic() - start, 1),
+        "system": chat.system_prompt,
+        "prompt": prompt,
+        "answer": answer,
+    }
+    brief = shorten(" ".join(answer.split()), 60)
+    print(f"🧠 {meta['model']} · {what}: {brief} · {meta['sec']} с")
+    return answer, meta
 
 
 def pick_test_ids(answer: str, ids: list[str], multiple: bool) -> str | list[str]:
@@ -829,32 +857,13 @@ class Operation(BaseOperation):
         """Журнал решений по вакансиям для статистики: одна JSON-строка на
         вакансию, до которой дошли фильтр, письмо или отклик."""
         rec, self._rec = self._rec, None
-        if not rec or "result" not in rec:
-            return
-        try:
-            path = self.tool.config_dir_path / JOURNAL_FILENAME
-            with path.open("a", encoding="utf-8") as f:
-                f.write(json.dumps(rec, ensure_ascii=False) + "\n")
-        except OSError as ex:
-            logger.warning("Не записал журнал откликов: %s", ex)
+        if rec and "result" in rec:
+            append_journal(self.tool.config_dir_path, rec)
 
     def _ai_call(
         self, chat: OpenAIChat, prompt: str, what: str
     ) -> tuple[str, dict]:
-        """Запрос к модели + сведения для журнала: модель и время.
-        Строка в выводе, чтобы в логе задачи было видно работу модели."""
-        start = time.monotonic()
-        answer = chat.complete(prompt)
-        meta = {
-            "model": chat.model or chat.client.model,
-            "sec": round(time.monotonic() - start, 1),
-            "system": chat.system_prompt,
-            "prompt": prompt,
-            "answer": answer,
-        }
-        brief = shorten(" ".join(answer.split()), 60)
-        print(f"🧠 {meta['model']} · {what}: {brief} · {meta['sec']} с")
-        return answer, meta
+        return ai_call(chat, prompt, what)
 
     def _max_responses_reached(self, state: _ApplyState) -> bool:
         if self.max_responses and state.applied_count >= self.max_responses:

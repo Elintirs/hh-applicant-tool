@@ -9,6 +9,10 @@ const RESULTS = {
   error: ["Ошибка", "danger"],
   redirect: ["Форма на сайте", "info"],
   limit: ["Лимит hh", "danger"],
+  chat_sent: ["Ответил AI", "success"],
+  chat_manual: ["Ответить самому", "warning"],
+  chat_dry_run: ["Чат: dry-run", "info"],
+  chat_left: ["Вышел из чата", "info"],
 };
 
 // Один вызов модели: что ушло на вход и что вернулось
@@ -36,11 +40,13 @@ function entry(r) {
       f ? aiCall(`Фильтр: ${f.suitable ? "подходит" : "не подходит"}`, f) : null,
       r.letter_ai ? aiCall("Письмо", r.letter_ai) : r.letter ? h("pre", { class: "mono ai-text" }, r.letter) : null,
       ...tests,
+      r.kind === "chat" && r.message ? h("div", { class: "subtle" }, "Работодатель: ", r.message.replace(/\s+/g, " ").slice(0, 300)) : null,
+      r.chat_ai ? aiCall("Ответ в чат", r.chat_ai) : r.reply ? h("pre", { class: "mono ai-text" }, r.reply) : null,
       r.error ? h("div", { class: "field-error" }, r.error) : null));
 }
 
 export default async function journal(root) {
-  mount(root, pageHeader("Журнал AI", "Что модель получила и что ответила по каждой вакансии. Пишет apply-vacancies, обновляется сам."), skeleton(4));
+  mount(root, pageHeader("Журнал AI", "Что модель получила и что ответила по вакансиям и чатам. Пишут apply-vacancies и reply-chats, обновляется сам."), skeleton(4));
   let timer;
   const open = new Set();
   async function load() {
@@ -52,7 +58,7 @@ export default async function journal(root) {
       pageHeader("Журнал AI", `Последние ${data.items.length} записей. Файл: ${data.path}`),
       data.items.length
         ? h("div", { class: "stack" }, data.items.map(entry))
-        : h("div", { class: "card" }, empty({ iconName: "sparkle", title: "Журнал пока пуст", text: "Записи появятся после запуска apply-vacancies с AI-фильтром или письмами." })));
+        : h("div", { class: "card" }, empty({ iconName: "sparkle", title: "Журнал пока пуст", text: "Записи появятся после запуска apply-vacancies или reply-chats с AI." })));
     root.querySelectorAll("details summary").forEach((s) => { if (open.has(s.textContent)) s.parentElement.open = true; });
   }
   await load();
