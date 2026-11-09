@@ -74,3 +74,15 @@ def test_default_prompts_render():
     op._add_vacancy_details({"id": "1"}, ph)
     for tpl in (av.DEFAULT_COVER_LETTER_PROMPT, av.DEFAULT_AI_FILTER_PROMPT):
         assert "NestJS" in render_template(tpl, ph)
+
+
+def test_pick_test_ids():
+    from hh_applicant_tool.operations.apply_vacancies import pick_test_ids
+
+    ids = ["101", "102", "103"]
+    assert pick_test_ids("102", ids, False) == "102"
+    assert pick_test_ids("101, 103, 999", ids, True) == ["101", "103"]
+    assert pick_test_ids("101, 103", ids, False) == "101"
+    assert pick_test_ids("ID: 102.", ids, True) == ["102"]
+    # мусор без ID: самый похожий вариант, а не падение
+    assert pick_test_ids("нет", ids, True)[0] in ids

@@ -132,7 +132,8 @@ DEFAULT_TEST_SYSTEM_PROMPT = """\
 
 Правила:
 - Выводи только ответ: без вступлений, пояснений, markdown и плейсхолдеров в скобках.
-- В вопросе с вариантами выведи только числовой ID выбранного варианта.
+- В вопросе с вариантами выведи только числовой ID выбранного варианта. Если в вопросе разрешено несколько ответов, выведи ID всех верных через запятую.
+- Вопрос на знания (код, технологии, архитектура) решай как опытный инженер: выбирай технически верный вариант, даже если технологии нет в резюме. Опыт с технологией и знание ответа - разные вещи.
 - Текстовый ответ: 1-2 коротких предложения по существу.
 - Факты о кандидате бери только из резюме в запросе: город, формат работы, опыт, навыки, контакты. Контакт (Telegram, почту, телефон, GitHub) пиши, только если он дословно есть в резюме; иначе предложи связаться через hh.
 - Если в резюме ответа нет, не утверждай ни «да», ни «нет» и не придумывай даты: ответь, что расскажешь подробно на собеседовании. Так отвечай про оформление по ТК на прошлых местах, дату выхода на работу, паспорт, адрес, судимость. Например: «Расскажу подробно на собеседовании».
@@ -178,18 +179,9 @@ DEFAULT_AI_FILTER_PROMPT = """\
 
 Подходит ли эта вакансия кандидату?"""
 
-DEFAULT_TEST_CHOICE_PROMPT = """\
-Кандидат: %(resume_title)s, опыт %(resume_total_experience)s, город %(resume_city)s.
-Формат работы: %(resume_work_format)s
-Навыки: %(resume_skills)s
-
-Вопрос: %(question)s
-Варианты:
-%(reply_options)s
-
-Выбери вариант, который подходит кандидату, или правильный, если это вопрос на знания. Ответь только ID."""
-
-DEFAULT_TEST_TEXT_PROMPT = """\
+# Выбор варианта видит то же резюме, что и текстовый ответ: иначе на
+# «опыт с PostgreSQL?» модель отвечала «нет», не видя опыта работы
+_TEST_RESUME_BLOCK = """\
 РЕЗЮМЕ
 Имя: %(first_name)s
 Должность: %(resume_title)s
@@ -199,6 +191,7 @@ DEFAULT_TEST_TEXT_PROMPT = """\
 Тип занятости: %(resume_employment_form)s
 Желаемая зарплата: %(resume_salary)s
 Общий опыт: %(resume_total_experience)s
+Образование: %(resume_education)s
 Навыки: %(resume_skills)s
 GitHub: %(github_profile_url)s
 О себе:
@@ -207,11 +200,31 @@ GitHub: %(github_profile_url)s
 %(resume_experience).2000s
 
 ВАКАНСИЯ: %(vacancy_name)s, %(employer_name)s
+"""
 
+DEFAULT_TEST_CHOICE_PROMPT = _TEST_RESUME_BLOCK + """
+Вопрос: %(question)s
+Варианты:
+%(reply_options)s
+
+Выбери вариант, который подходит кандидату, или правильный, если это вопрос на знания. Ответь только ID."""
+
+DEFAULT_TEST_TEXT_PROMPT = _TEST_RESUME_BLOCK + """
 Вопрос работодателя: %(question)s"""
+
+TEST_MULTIPLE_HINT = "\n\nМожно выбрать несколько вариантов: выведи через запятую ID всех верных, а если верный один, только его."
 
 DEFAULT_APPLY_MAIL_SUBJECT = "{Отклик|Резюме} на вакансию %(vacancy_name)s"
 DEFAULT_APPLY_MAIL_BODY = "{Здравствуйте|Добрый день}, {прошу рассмотреть|пожалуйста рассмотрите} мое резюме %(resume_url)s на вакансию %(vacancy_name)s."
+
+
+def pick_test_ids(answer: str, ids: list[str], multiple: bool) -> str | list[str]:
+    """ID вариантов из ответа модели: только те, что реально есть в вопросе.
+    Если ID не нашлось, берём самый похожий на ответ вариант."""
+    found = list(dict.fromkeys(i for i in re.findall(r"\d+", answer) if i in ids))
+    if not found:
+        found = [choose_similar(answer.strip(". "), ids)]
+    return found if multiple else found[0]
 
 
 class Namespace(BaseNamespace):
@@ -1284,15 +1297,13 @@ class Operation(BaseOperation):
                         },
                         "промпта выбора ответа в тесте",
                     )
+                    multiple = str(task.get("multiple")).lower() == "true"
+                    if multiple:
+                        prompt += TEST_MULTIPLE_HINT
                     answer, meta = self._ai_call(self.test_ai, prompt, "тест")
-                    answer = answer.strip(". ")
                     logger.debug("AI ответ (выбор): %.255s", answer)
-                    # Берём только ID, который реально есть среди вариантов
-                    # К сожалению нейронка постоянно возвращает мусор
-                    # И поэтому через difflib ищем вариант, который макчимально
-                    # похож на ответ от нейронки
-                    payload[field_name] = choose_similar(
-                        answer, [str(s["id"]) for s in solutions]
+                    payload[field_name] = pick_test_ids(
+                        answer, [str(s["id"]) for s in solutions], multiple
                     )
                 else:
                     texts = [strip_tags(s["text"]) for s in solutions]
@@ -1311,11 +1322,14 @@ class Operation(BaseOperation):
                 by_id = {str(s["id"]): strip_tags(s["text"]) for s in solutions}
                 # meta первым: в нём сырой ответ модели (ID), а в журнал
                 # нужен текст выбранного варианта
+                chosen_ids = payload[field_name]
+                if not isinstance(chosen_ids, list):
+                    chosen_ids = [chosen_ids]
                 qa.append({
                     **meta,
                     "q": question[:500],
                     "options": list(by_id.values()),
-                    "answer": by_id.get(str(payload[field_name])),
+                    "answer": "; ".join(by_id.get(str(i), str(i)) for i in chosen_ids),
                 })
             else:
                 # Рандомные эмоджи
