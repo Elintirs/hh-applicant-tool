@@ -17,6 +17,9 @@
 #   HH_PANEL_PORT           порт на хосте (8090)
 #   HH_PANEL_PUBLIC_HOSTS   IP ПК в сети через запятую: попадут в сертификат
 #   TZ                      часовой пояс для расписания (Europe/Moscow)
+#   HH_OLLAMA_BIND          0.0.0.0, чтобы панель на ноутбуке ходила в Ollama ПК
+#                           (http://<IP ПК>:11434). У Ollama нет пароля: вся
+#                           локальная сеть сможет ей пользоваться
 name: hh
 
 services:
@@ -60,8 +63,10 @@ services:
             - driver: nvidia
               count: all
               capabilities: [gpu]
+    ports:
+      # По умолчанию только сам ПК; панель на ПК ходит по имени сервиса
+      - "${HH_OLLAMA_BIND:-127.0.0.1}:11434:11434"
     restart: unless-stopped
-    # Наружу не публикуем: панель и утилита ходят в ollama по имени сервиса
 
 volumes:
   ollama:
