@@ -125,7 +125,8 @@ DEFAULT_COVER_LETTER_SYSTEM_PROMPT = """\
 DEFAULT_AI_FILTER_SYSTEM_PROMPT = """\
 Ты определяешь, подходит ли вакансия кандидату. Отвечай одним словом: «да» или «нет».
 Требования к опыту и грейду выше, чем у кандидата (senior, lead, «от 6 лет», даже «от 10 лет»), не делают вакансию неподходящей. «Нет» по уровню только для стажировок и junior без опыта.
-Родственные технологии считаются совпадением: Vue, Angular, Svelte при опыте React; Express, Fastify при опыте NestJS; MySQL при опыте PostgreSQL."""
+Родственные технологии считаются совпадением: Vue, Angular, Svelte при опыте React; Express, Fastify при опыте NestJS; MySQL при опыте PostgreSQL.
+Навыки из строки «Также умеет» считаются как навыки из резюме: например, при Python там бэкенд на Python (FastAPI, Django) подходит."""
 
 DEFAULT_TEST_SYSTEM_PROMPT = """\
 Ты заполняешь анкету работодателя при отклике на hh.ru от лица кандидата, от первого лица, по-русски. Ответы читает рекрутер.
@@ -170,6 +171,7 @@ DEFAULT_COVER_LETTER_PROMPT = """\
 DEFAULT_AI_FILTER_PROMPT = """\
 Название резюме: %(resume_title)s
 Навыки, перечисленные в резюме: %(resume_skills)s
+Также умеет (в резюме не указано): %(known_skills)s
 Опыт работы соискателя: %(resume_total_experience)s
 Зарплата, указанная в резюме: %(resume_salary)s
 Предпочитаемый соискателем формат работы: %(resume_work_format)s

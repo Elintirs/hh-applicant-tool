@@ -12,7 +12,7 @@ RESUME = {
     k: "x"
     for k in (
         "first_name resume_title resume_total_experience resume_skills "
-        "resume_about resume_experience resume_salary resume_work_format"
+        "resume_about resume_experience resume_salary resume_work_format known_skills"
     ).split()
 }
 
