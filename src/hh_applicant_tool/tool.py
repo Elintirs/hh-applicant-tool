@@ -1228,6 +1228,9 @@ class HHApplicantTool:
         rv["resume_work_format"] = ", ".join(
             i["name"] for i in (resume.get("work_format") or [])
         )
+        rv["resume_relocation"] = (
+            (resume.get("relocation") or {}).get("type") or {}
+        ).get("name") or ""
         rv["resume_citizenship"] = ", ".join(
             i["name"] for i in resume.get("citizenship") or []
         )

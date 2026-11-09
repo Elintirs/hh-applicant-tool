@@ -190,6 +190,7 @@ _TEST_RESUME_BLOCK = """\
 Город: %(resume_city)s
 Гражданство: %(resume_citizenship)s
 Формат работы: %(resume_work_format)s
+Переезд: %(resume_relocation)s
 Тип занятости: %(resume_employment_form)s
 Желаемая зарплата: %(resume_salary)s
 Общий опыт: %(resume_total_experience)s
