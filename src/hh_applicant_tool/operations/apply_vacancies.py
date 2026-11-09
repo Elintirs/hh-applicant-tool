@@ -5,8 +5,11 @@ import argparse
 import dataclasses
 import html
 import logging
+import json
 import random
 import re
+import time
+from datetime import datetime
 from email.message import EmailMessage
 from itertools import chain
 from typing import TYPE_CHECKING, Any, Iterator, NoReturn
@@ -89,6 +92,7 @@ SEARCH_PARAM_NAMES = (
 )
 
 DEFAULT_PER_PAGE = 100
+JOURNAL_FILENAME = "apply-journal.jsonl"
 
 DEFAULT_COVER_LETTER = """\
 {Здравствуйте|Добрый день}, меня зовут %(first_name)s.\
@@ -532,6 +536,7 @@ class Operation(BaseOperation):
         for name in SEARCH_PARAM_NAMES:
             setattr(self, name, getattr(args, name))
         self.dry_run = args.dry_run
+        self._rec: dict | None = None
         self.excluded_pat = None
         if args.excluded_filter:
             try:
@@ -616,10 +621,15 @@ class Operation(BaseOperation):
         prompt = render_template(
             self.ai_filter_prompt, placeholders, "промпта AI-фильтра"
         )
-        response = self.vacancy_filter_ai.complete(prompt)
+        response, meta = self._ai_call(self.vacancy_filter_ai, prompt)
         logger.debug("AI ответ фильтра: %s", response)
-
-        return self._parse_is_suitable_response(response)
+        suitable = self._parse_is_suitable_response(response)
+        self._note(
+            vacancy_experience=placeholders.get("vacancy_experience"),
+            vacancy_skills=placeholders.get("vacancy_skills"),
+            ai_filter={"answer": response[:200], "suitable": suitable, **meta},
+        )
+        return suitable
 
     def _add_vacancy_details(self, vacancy: dict, placeholders: dict) -> None:
         """Догружает полную вакансию в плейсхолдеры: описание, навыки, опыт.
@@ -696,6 +706,17 @@ class Operation(BaseOperation):
         for vacancy in self._get_vacancies(resume_id=resume["id"]):
             if not state.do_apply or self._max_responses_reached(state):
                 break
+            self._rec = {
+                "ts": datetime.now().isoformat(timespec="seconds"),
+                "resume_id": resume["id"],
+                "vacancy_id": vacancy["id"],
+                "vacancy": vacancy.get("name"),
+                "employer": (vacancy.get("employer") or {}).get("name"),
+                "url": vacancy.get("alternate_url"),
+                "has_test": bool(vacancy.get("has_test")),
+                "letter_required": bool(vacancy.get("response_letter_required")),
+                "dry_run": self.dry_run,
+            }
             # Любая ошибка отклика (и вакансии в целом) здесь превращается
             # в пропуск вакансии, приложение не падает
             try:
@@ -705,13 +726,16 @@ class Operation(BaseOperation):
             except LimitExceeded:
                 state.do_apply = False
                 state.limit_reached = True
+                self._note(result="limit")
                 break
             except Redirect:
+                self._note(result="redirect")
                 logger.warning(
                     "Игнорирую перенаправление на форму: %s",
                     vacancy["alternate_url"],
                 )
             except (ApiError, XHRError, _ApplyError) as ex:
+                self._note(result="error", error=str(ex)[:500])
                 logger.warning(
                     "Пропускаю вакансию %s: %s", vacancy["alternate_url"], ex
                 )
@@ -721,9 +745,12 @@ class Operation(BaseOperation):
                 ValueError,
                 requests.RequestException,
             ) as ex:
+                self._note(result="error", error=str(ex)[:500])
                 logger.error(
                     "Пропускаю вакансию %s: %s", vacancy["alternate_url"], ex
                 )
+            finally:
+                self._write_journal()
 
         logger.info(
             "Закончили рассылку откликов для резюме: %s (%s). Отправлено: %d",
@@ -757,6 +784,32 @@ class Operation(BaseOperation):
             self.tool.get_resume_placeholders(resume.get("id")),
         )
         return placeholders
+
+    def _note(self, **fields: Any) -> None:
+        if getattr(self, "_rec", None) is not None:
+            self._rec.update(fields)
+
+    def _write_journal(self) -> None:
+        """Журнал решений по вакансиям для статистики: одна JSON-строка на
+        вакансию, до которой дошли фильтр, письмо или отклик."""
+        rec, self._rec = self._rec, None
+        if not rec or "result" not in rec:
+            return
+        try:
+            path = self.tool.config_dir_path / JOURNAL_FILENAME
+            with path.open("a", encoding="utf-8") as f:
+                f.write(json.dumps(rec, ensure_ascii=False) + "\n")
+        except OSError as ex:
+            logger.warning("Не записал журнал откликов: %s", ex)
+
+    def _ai_call(self, chat: OpenAIChat, prompt: str) -> tuple[str, dict]:
+        """Запрос к модели + сведения для журнала: модель и время."""
+        start = time.monotonic()
+        answer = chat.complete(prompt)
+        return answer, {
+            "model": chat.model or chat.client.model,
+            "sec": round(time.monotonic() - start, 1),
+        }
 
     def _max_responses_reached(self, state: _ApplyState) -> bool:
         if self.max_responses and state.applied_count >= self.max_responses:
@@ -802,6 +855,7 @@ class Operation(BaseOperation):
         )
 
         if self.dry_run:
+            self._note(result="dry_run")
             logger.info(
                 "[dry-run] Отклик не отправляется: %s", vacancy["alternate_url"]
             )
@@ -864,6 +918,7 @@ class Operation(BaseOperation):
         url = vacancy["alternate_url"]
 
         if self._is_excluded(vacancy):
+            self._note(result="excluded")
             logger.info("Вакансия попала под фильтр: %s", url)
             self._blacklist_vacancy(vacancy)
             if not self.dry_run:
@@ -875,6 +930,7 @@ class Operation(BaseOperation):
             and self.vacancy_filter_ai
             and not self._is_vacancy_suitable(vacancy, message_placeholders)
         ):
+            self._note(result="ai_rejected")
             logger.info("Вакансия отклонена AI фильтром: %s", url)
             print("🧠 AI посчитал неподходящей", url)
             self._blacklist_vacancy(vacancy)
@@ -950,7 +1006,8 @@ class Operation(BaseOperation):
                 "промпта сопроводительного письма",
             )
             logger.debug("prompt: %s", prompt)
-            letter = self.cover_letter_ai.complete(prompt)
+            letter, meta = self._ai_call(self.cover_letter_ai, prompt)
+            self._note(letter_ai=meta)
         else:
             template = self._match_letter_template(vacancy)
             letter = render_template(
@@ -960,6 +1017,7 @@ class Operation(BaseOperation):
             )
 
         logger.debug("Сопроводительное письмо: %.255s", letter)
+        self._note(letter=letter)
         return letter
 
     def _match_letter_template(self, vacancy: dict) -> dict[str, Any] | None:
@@ -1026,6 +1084,7 @@ class Operation(BaseOperation):
         )
 
         if str(result.get("success")).lower() == "true":
+            self._note(result="sent")
             state.applied_count += 1
             logger.info(
                 "Отправили отклик на вакансию с тестом: %s",
@@ -1073,6 +1132,7 @@ class Operation(BaseOperation):
         if res != {}:
             raise _ApplyError(f"Неожиданный ответ на отклик: {res!r:.300}")
 
+        self._note(result="sent")
         state.applied_count += 1
         logger.info(
             "Отправили отклик на вакансию без теста: %s",
@@ -1175,10 +1235,12 @@ class Operation(BaseOperation):
             "letter": letter,
         }
 
+        qa: list[dict] = []
         for task in test_data["tasks"]:
             field_name = f"task_{task['id']}"
             solutions = task.get("candidateSolutions") or []
             question = (task.get("description") or "").strip()
+            meta: dict = {}
 
             if solutions:
                 if self.test_ai:
@@ -1194,7 +1256,8 @@ class Operation(BaseOperation):
                         },
                         "промпта выбора ответа в тесте",
                     )
-                    answer = self.test_ai.complete(prompt).strip(". ")
+                    answer, meta = self._ai_call(self.test_ai, prompt)
+                    answer = answer.strip(". ")
                     logger.debug("AI ответ (выбор): %.255s", answer)
                     # Берём только ID, который реально есть среди вариантов
                     # К сожалению нейронка постоянно возвращает мусор
@@ -1217,6 +1280,13 @@ class Operation(BaseOperation):
                         chosen = solutions[len(solutions) // 2]
 
                     payload[field_name] = chosen["id"]
+                by_id = {str(s["id"]): strip_tags(s["text"]) for s in solutions}
+                qa.append({
+                    "q": question[:500],
+                    "options": list(by_id.values()),
+                    "answer": by_id.get(str(payload[field_name])),
+                    **meta,
+                })
             else:
                 # Рандомные эмоджи
                 # payload[f"{field_name}_text"] = "".join(
@@ -1230,7 +1300,7 @@ class Operation(BaseOperation):
                         {**placeholders, "question": question},
                         "промпта текстового ответа в тесте",
                     )
-                    answer = self.test_ai.complete(prompt)
+                    answer, meta = self._ai_call(self.test_ai, prompt)
                     ## добавляем ответ AI на вопрос теста##
                     logger.debug("AI ответ: %.255s", answer)
                 elif "://" in question:
@@ -1242,7 +1312,9 @@ class Operation(BaseOperation):
                     answer = "Да"
 
                 payload[f"{field_name}_text"] = answer
+                qa.append({"q": question[:500], "answer": answer, **meta})
 
+        self._note(test=qa)
         logger.debug(f"{payload = }")
         return payload, response_url
 

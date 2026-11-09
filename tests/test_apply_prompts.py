@@ -48,6 +48,23 @@ def test_full_vacancy_not_refetched():
     assert op.api_client.calls == 0
 
 
+def test_journal_writes_only_decided_vacancies(tmp_path):
+    import json
+
+    op = make_op()
+    op.tool.config_dir_path = tmp_path
+    op._rec = {"vacancy_id": "1"}
+    op._write_journal()  # дальше фильтров не дошли: в журнал не пишем
+    op._rec = {"vacancy_id": "2"}
+    op._note(result="sent", letter="Здравствуйте!")
+    op._write_journal()
+    op._note(result="lost")  # записи уже нет: ничего не падает
+    lines = (tmp_path / av.JOURNAL_FILENAME).read_text().splitlines()
+    assert [json.loads(x) for x in lines] == [
+        {"vacancy_id": "2", "result": "sent", "letter": "Здравствуйте!"}
+    ]
+
+
 def test_default_prompts_render():
     op, ph = make_op(), {
         **RESUME,
