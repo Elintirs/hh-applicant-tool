@@ -98,20 +98,30 @@ DEFAULT_COVER_LETTER = """\
 
 # Системные промпты - простые строки, не шаблоны
 DEFAULT_COVER_LETTER_SYSTEM_PROMPT = """\
-Ты пишешь сопроводительные письма от первого лица на русском языке.
+Ты пишешь короткий текст отклика на hh.ru от лица кандидата, от первого лица, по-русски. Рекрутер видит его раньше резюме и тратит на него 10 секунд.
 
-Правила:
-- Выводи ТОЛЬКО текст письма. Без вступлений («Вот письмо», «Конечно»), без комментариев и пояснений после текста.
-- Не используй markdown: никаких звёздочек, решёток, списков, заголовков, кавычек вокруг письма.
-- Не используй плейсхолдеры в квадратных или фигурных скобках. Если данных нет, просто опусти эту деталь.
-- Не придумывай факты, опыт, компании и навыки, которых нет в запросе.
-- Не добавляй тему письма, контакты и подпись, кроме имени в конце.
-- Пиши только по-русски, без английских слов и вставок."""
+Как писать:
+1. Если в описании вакансии просят что-то написать в отклике (ответить на вопрос, указать кодовое слово, зарплату, ссылку), начни с ответа на это.
+2. Первое предложение: «Здравствуйте!», кто ты и два-три твоих навыка из резюме, которые нужны в этой вакансии. Стаж называй, только если вакансия просит не меньше твоего; если она рассчитана на меньший опыт, стаж не упоминай. Если язык или фреймворк вакансии отсутствует в навыках резюме, не называй его и не пиши, что работал с ним. Если вакансия на родственном фреймворке (например, Vue или Angular при опыте React), можно одной фразой честно сказать, какой у тебя основной стек.
+3. Дальше два факта из резюме, которые закрывают главные требования вакансии, лучше всего с цифрами из резюме.
+4. Последняя строка: имя кандидата из резюме и его Telegram, если он есть в резюме.
 
-DEFAULT_AI_FILTER_SYSTEM_PROMPT = (
-    "Ты определяешь, подходит ли вакансия кандидату. "
-    "Отвечай одним словом: «да» или «нет»."
-)
+Ограничения:
+- Всего 2-4 предложения до подписи, не больше 450 знаков.
+- Только факты из резюме. Чего нет в резюме, не упоминай.
+- Пиши как человек в чате с рекрутером: просто, коротко, без пафоса. Названия технологий латиницей.
+- Запрещено: «откликаюсь на позицию», «имею N лет опыта», «как указано в вакансии», «соответствует требованиям», «готов обсудить, как мой опыт поможет», «буду рад», «уверен», «ценный», «значительно», «эффективно», «успешно», «команда профессионалов», «динамично», «рассмотрите моё резюме», вопросы про зарплату.
+- Не пересказывай вакансию и не хвали компанию.
+- Выведи только текст: без markdown, списков, кавычек, темы письма и пояснений.
+
+Пример тона для другого, вымышленного кандидата. Не бери из него ни имя, ни контакты, ни факты:
+Здравствуйте! Пишу бэкенд на Go и PostgreSQL, 5 лет в коммерции. В платёжном сервисе переписал обработку вебхуков на очередь в Kafka, потерянных платежей стало ноль. Сейчас держу сервис на 3 тыс. RPS и сам веду деплой в Kubernetes.
+Алексей, Telegram @alexgo"""
+
+DEFAULT_AI_FILTER_SYSTEM_PROMPT = """\
+Ты определяешь, подходит ли вакансия кандидату. Отвечай одним словом: «да» или «нет».
+Требования к опыту и грейду выше, чем у кандидата (senior, lead, «от 6 лет», даже «от 10 лет»), не делают вакансию неподходящей. «Нет» по уровню только для стажировок и junior без опыта.
+Родственные технологии считаются совпадением: Vue, Angular, Svelte при опыте React; Express, Fastify при опыте NestJS; MySQL при опыте PostgreSQL."""
 
 DEFAULT_TEST_SYSTEM_PROMPT = """\
 Ты проходишь тест при отклике на вакансию от имени кандидата. \
@@ -125,13 +135,26 @@ DEFAULT_TEST_SYSTEM_PROMPT = """\
 - Не придумывай факты о кандидате, которых нет в вопросе."""
 
 # Пользовательские промпты - шаблоны, подстановка через %(name)s
-DEFAULT_COVER_LETTER_PROMPT = (
-    "Сгенерируй сопроводительное письмо не более 5-7 предложений "
-    "для вакансии «%(vacancy_name)s» и работодателя «%(employer_name)s». "
-    "Меня зовут: %(first_name)s. Мое резюме: «%(resume_title)s». "
-    "Начни сразу с обращения или первого предложения, закончи именем. "
-    "Только текст письма, без markdown и комментариев."
-)
+DEFAULT_COVER_LETTER_PROMPT = """\
+ВАКАНСИЯ
+Название: %(vacancy_name)s
+Компания: %(employer_name)s
+Требуемый опыт: %(vacancy_experience)s
+Ключевые навыки: %(vacancy_skills)s
+Описание:
+%(vacancy_description).3000s
+
+РЕЗЮМЕ КАНДИДАТА
+Имя: %(first_name)s
+Должность: %(resume_title)s
+Общий опыт: %(resume_total_experience)s
+Навыки: %(resume_skills)s
+О себе:
+%(resume_about).1500s
+Опыт работы:
+%(resume_experience).2500s
+
+Напиши сопроводительное письмо на эту вакансию."""
 
 DEFAULT_AI_FILTER_PROMPT = """\
 Название резюме: %(resume_title)s
@@ -589,31 +612,37 @@ class Operation(BaseOperation):
         if not self.vacancy_filter_ai:
             return True
 
-        full_vacancy: Vacancy = self.api_client.get(
-            f"/vacancies/{vacancy['id']}"
-        )
-
-        key_skills = ", ".join(
-            s["name"]
-            for s in (full_vacancy.get("key_skills") or [])
-            if s.get("name")
-        )
-
+        self._add_vacancy_details(vacancy, placeholders)
         prompt = render_template(
-            self.ai_filter_prompt,
-            {
-                **placeholders,
-                "vacancy_description": strip_tags(
-                    full_vacancy.get("description") or ""
-                ),
-                "vacancy_skills": key_skills,
-            },
-            "промпта AI-фильтра",
+            self.ai_filter_prompt, placeholders, "промпта AI-фильтра"
         )
         response = self.vacancy_filter_ai.complete(prompt)
         logger.debug("AI ответ фильтра: %s", response)
 
         return self._parse_is_suitable_response(response)
+
+    def _add_vacancy_details(self, vacancy: dict, placeholders: dict) -> None:
+        """Догружает полную вакансию в плейсхолдеры: описание, навыки, опыт.
+        Фильтр и письмо получают один и тот же словарь, запрос идет один раз."""
+        if "vacancy_description" in placeholders:
+            return
+        # В выдаче поиска описания нет, полная вакансия приходит только по id
+        full_vacancy: Vacancy = (
+            vacancy
+            if "description" in vacancy
+            else self.api_client.get(f"/vacancies/{vacancy['id']}")
+        )
+        placeholders["vacancy_description"] = strip_tags(
+            full_vacancy.get("description") or ""
+        )
+        placeholders["vacancy_skills"] = ", ".join(
+            s["name"]
+            for s in (full_vacancy.get("key_skills") or [])
+            if s.get("name")
+        )
+        placeholders["vacancy_experience"] = (
+            full_vacancy.get("experience") or {}
+        ).get("name") or ""
 
     def _apply_vacancies(self) -> None:
         resumes: list[datatypes.Resume] = self.tool.get_resumes()
@@ -914,6 +943,7 @@ class Operation(BaseOperation):
                 f"шаблоне письма {self.letter_template.get('name')!r}",
             )
         elif self.cover_letter_ai:
+            self._add_vacancy_details(vacancy, message_placeholders)
             prompt = render_template(
                 self.cover_letter_prompt,
                 message_placeholders,
