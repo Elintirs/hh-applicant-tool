@@ -8,6 +8,7 @@ X-Panel-Request, который браузер не отправит с чужо
 
 from __future__ import annotations
 
+import gzip
 import hashlib
 import hmac
 import json
@@ -222,6 +223,24 @@ class PanelApp:
 Route = tuple[str, re.Pattern[str], Callable[..., None]]
 
 
+_HEAVY = ("system", "prompt")
+
+
+def _journal_light(rec: dict, line: int) -> dict:
+    """Запись журнала без промптов модели: в списке они не нужны, а весят
+    почти всё. Полную запись отдаёт journal/<line>."""
+    def strip(call: Any) -> Any:
+        if isinstance(call, dict) and any(k in call for k in _HEAVY):
+            return {k: v for k, v in call.items() if k not in _HEAVY} | {"has_prompt": True}
+        return call
+
+    out = {k: strip(v) for k, v in rec.items()}
+    if isinstance(rec.get("test"), list):
+        out["test"] = [strip(t) for t in rec["test"]]
+    out["_line"] = line
+    return out
+
+
 def make_handler(app: PanelApp) -> type[BaseHTTPRequestHandler]:
     static_root = resources.files(STATIC_PACKAGE) / "static"
     routes: list[Route] = []
@@ -246,11 +265,22 @@ def make_handler(app: PanelApp) -> type[BaseHTTPRequestHandler]:
 
         # ---- ответ ---------------------------------------------------
 
-        def _send(self, status: int, body: bytes, content_type: str, extra: dict[str, str] | None = None) -> None:
+        def _send(self, status: int, body: bytes, content_type: str, extra: dict[str, str] | None = None, cache: str = "no-store") -> None:
+            # Сжимаем текст: панель часто открывают через медленный ZeroTier
+            gz = (
+                len(body) > 1024
+                and "gzip" in (self.headers.get("Accept-Encoding") or "")
+                and (content_type.startswith(("text/", "application/json", "application/javascript", "image/svg")))
+            )
+            if gz:
+                body = gzip.compress(body, 6)
             self.send_response(status)
             self.send_header("Content-Type", content_type)
             self.send_header("Content-Length", str(len(body)))
-            self.send_header("Cache-Control", "no-store")
+            if gz:
+                self.send_header("Content-Encoding", "gzip")
+                self.send_header("Vary", "Accept-Encoding")
+            self.send_header("Cache-Control", cache)
             self.send_header("X-Content-Type-Options", "nosniff")
             self.send_header("Referrer-Policy", "no-referrer")
             self.send_header(
@@ -381,7 +411,16 @@ def make_handler(app: PanelApp) -> type[BaseHTTPRequestHandler]:
             ctype = mimetypes.guess_type(rel[-1])[0] or "application/octet-stream"
             if ctype.startswith("text/") or ctype in ("application/javascript", "image/svg+xml"):
                 ctype += "; charset=utf-8"
-            self._send(200, node.read_bytes(), ctype)
+            # no-cache = каждый раз спросить, но неизменённый файл не качать заново
+            st = node.stat()
+            etag = f'"{st.st_mtime_ns:x}-{st.st_size:x}"'
+            if self.headers.get("If-None-Match") == etag:
+                self.send_response(304)
+                self.send_header("ETag", etag)
+                self.send_header("Cache-Control", "no-cache")
+                self.end_headers()
+                return
+            self._send(200, node.read_bytes(), ctype, {"ETag": etag}, cache="no-cache")
 
         def _login(self) -> None:
             if not app.token:
@@ -500,14 +539,34 @@ def make_handler(app: PanelApp) -> type[BaseHTTPRequestHandler]:
         except ValueError:
             limit = 100
         items: list[Any] = []
+        version = ""
         if path.exists():
+            st = path.stat()
+            version = f"{st.st_mtime_ns:x}-{st.st_size:x}"
+            # Журнал не менялся: не гоняем те же мегабайты каждые 10 секунд
+            if h.query.get("v") == version:
+                h.json({"unchanged": True, "v": version})
+                return
             # shortcut: читаем файл целиком, при десятках МБ перейти на чтение с конца
-            for line in path.read_text(encoding="utf-8").splitlines()[-limit:]:
+            lines = path.read_text(encoding="utf-8").splitlines()
+            start = max(0, len(lines) - limit)
+            for n, line in enumerate(lines[start:], start):
                 try:
-                    items.append(json.loads(line))
+                    items.append(_journal_light(json.loads(line), n))
                 except ValueError:
                     continue
-        h.json({"items": items[::-1], "path": str(path)})
+        h.json({"items": items[::-1], "path": str(path), "v": version})
+
+    @route("GET", "journal/:line")
+    def journal_item(h: Handler, line: str) -> None:
+        # Полная запись с промптами: грузится, только когда блок раскрыли
+        path = app.ctx().dir / av.JOURNAL_FILENAME
+        try:
+            n = int(line)
+            text = path.read_text(encoding="utf-8").splitlines()[n]
+        except (ValueError, IndexError, OSError) as ex:
+            raise ApiError("Запись не найдена", 404) from ex
+        h.json(json.loads(text))
 
     @route("GET", "ollama/ps")
     def ollama_ps(h: Handler) -> None:
@@ -862,6 +921,10 @@ def make_handler(app: PanelApp) -> type[BaseHTTPRequestHandler]:
     @route("GET", "chats/:chat_id")
     def chat_get(h: Handler, chat_id: str) -> None:
         h.json(app.ctx().service.chat_messages(int(chat_id)))
+
+    @route("GET", "chats/:chat_id/quick/:message_id")
+    def chat_quick(h: Handler, chat_id: str, message_id: str) -> None:
+        h.json({"items": app.ctx().service.chat_quick_replies(int(chat_id), int(message_id))})
 
     @route("POST", "chats/:chat_id/send")
     def chat_send(h: Handler, chat_id: str) -> None:

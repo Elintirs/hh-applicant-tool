@@ -362,24 +362,18 @@ class HHService:
             me = str(chat.get("currentParticipantId") or "")
             messages = (chat.get("messages") or {}).get("items") or []
             writable = (data.get("chatStates") or {}).get("writeMessageState", {}).get("allowed", True)
-            quick: list[str] = []
-            if messages:
-                last = messages[-1]
-                try:
-                    quick = op.get_quick_replies(chat_id, last["id"])
-                except Exception:  # noqa: BLE001
-                    quick = []
-                if last.get("id") != chat.get("lastViewedByCurrentUserMessageId"):
-                    try:
-                        op.mark_chat_read(chat_id, last["id"])
-                    except Exception:  # noqa: BLE001
-                        pass
             self._done()
+        # Переписку отдаём сразу: отметка «прочитано» идёт в фоне,
+        # быстрые ответы панель догружает отдельно (chat_quick_replies)
+        if messages:
+            last = messages[-1]
+            if last.get("id") != chat.get("lastViewedByCurrentUserMessageId"):
+                threading.Thread(target=self._mark_read, args=(chat_id, last["id"]), daemon=True).start()
         return {
             "id": chat_id,
             "writable": writable,
             "has_more": (chat.get("messages") or {}).get("hasMore", False),
-            "quick_replies": quick,
+            "last_message_id": messages[-1].get("id") if messages else None,
             "options": op.get_reply_options(messages[-1]) if messages else [],
             "messages": [
                 {
@@ -393,6 +387,21 @@ class HHService:
                 for m in messages
             ],
         }
+
+    def _mark_read(self, chat_id: int, message_id: int) -> None:
+        try:
+            with self.lock:
+                self._chats().mark_chat_read(chat_id, message_id)
+        except Exception:  # noqa: BLE001
+            logger.debug("Не отметил чат %s прочитанным", chat_id)
+
+    def chat_quick_replies(self, chat_id: int, message_id: int) -> list[str]:
+        # Подсказки необязательны: при сбое hh просто без них
+        try:
+            with self.lock:
+                return self._chats().get_quick_replies(chat_id, message_id)
+        except Exception:  # noqa: BLE001
+            return []
 
     def chat_send(self, chat_id: int, text: str) -> None:
         text = text.strip()

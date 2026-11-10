@@ -1,6 +1,6 @@
-import { get } from "../api.js";
+import { get, post } from "../api.js";
 import {
-  h, mount, button, empty, skeleton, pageHeader, callout, statusBadge, relTime, dateTime, plural,
+  h, mount, button, empty, skeleton, pageHeader, callout, statusBadge, relTime, dateTime, plural, busy, toast,
 } from "../ui.js";
 
 function section(title, action, ...body) {
@@ -80,7 +80,11 @@ export default async function overview(root, ctx) {
   const quick = section("Быстрые действия", null, h("div", { class: "card-body row" },
     button("Подобрать вакансии", { iconName: "search", onClick: () => ctx.navigate("vacancies") }),
     button("Чаты", { iconName: "chat", onClick: () => ctx.navigate("chats", { unread: "1" }) }),
-    button("Поднять резюме", { iconName: "up", onClick: () => ctx.navigate("resumes") })));
+    // Действие, а не переход: запускаем подъём и показываем ход задачи
+    button("Поднять резюме", { iconName: "up", onClick: (e) => busy(e.currentTarget, async () => {
+      try { const job = await post("jobs", { args: ["update-resumes"] }); ctx.refreshRunning && ctx.refreshRunning(); toast("Поднимаем резюме"); ctx.navigate("jobs", { id: job.id }); }
+      catch (err) { toast(err.message, "error"); }
+    }) })));
 
   // ---- сводка ----
   let statsLine = null;

@@ -128,7 +128,8 @@ svg { flex-shrink: 0; }
 .card-footer { display: flex; gap: var(--space-2); justify-content: flex-end; flex-wrap: wrap; padding: var(--space-3) var(--space-5); border-top: 1px solid var(--color-border); background: var(--color-surface-sunken); border-radius: 0 0 var(--radius-lg) var(--radius-lg); }
 .card-title { display: flex; align-items: center; gap: var(--space-2); }
 .card-hint { color: var(--color-text-muted); font-size: var(--font-size-sm); margin-top: 2px; }
-.card.is-active { border-color: var(--color-accent); box-shadow: 0 0 0 1px var(--color-accent); }
+/* Раскрытая карточка: заметнее соседних, но не синяя. Синий = выбор и фокус */
+.card.is-active { border-color: color-mix(in srgb, var(--color-text) 28%, var(--color-border)); }
 
 /* ===== Кнопки ===== */
 .btn {
@@ -344,7 +345,7 @@ details.disclosure > summary:hover { color: var(--color-text); }
 .op-item:first-child { border-top: 0; border-radius: var(--radius-lg) var(--radius-lg) 0 0; }
 .op-item:last-child { border-radius: 0 0 var(--radius-lg) var(--radius-lg); }
 .op-item:hover { background: var(--color-surface-hover); }
-.op-item[aria-current="true"] { background: var(--color-accent-soft); }
+.op-item[aria-current="true"] { background: var(--color-accent-soft); box-shadow: inset 3px 0 0 var(--color-accent); }
 .op-item[aria-current="true"] .op-title { color: var(--color-accent-text); }
 .op-title { font-weight: var(--font-weight-medium); display: block; }
 .op-name { font-family: var(--font-mono); font-size: var(--font-size-xs); color: var(--color-text-subtle); }
@@ -357,7 +358,7 @@ details.disclosure > summary:hover { color: var(--color-text); }
 .job-row { display: grid; grid-template-columns: minmax(0, 1fr) auto; gap: 2px var(--space-3); width: 100%; text-align: left; border: 0; border-top: 1px solid var(--color-border); background: none; font: inherit; color: inherit; padding: var(--space-3) var(--space-4); cursor: pointer; }
 .job-row:first-child { border-top: 0; }
 .job-row:hover { background: var(--color-surface-hover); }
-.job-row[aria-current="true"] { background: var(--color-accent-soft); }
+.job-row[aria-current="true"] { background: var(--color-accent-soft); box-shadow: inset 3px 0 0 var(--color-accent); }
 .job-row .cmd { grid-column: 1 / -1; font-family: var(--font-mono); font-size: var(--font-size-xs); color: var(--color-text-subtle); }
 
 /* ===== KPI и графики ===== */
@@ -474,7 +475,8 @@ details.disclosure > summary:hover { color: var(--color-text); }
 .chat-row { display: flex; flex-direction: column; gap: 2px; width: 100%; padding: var(--space-3) var(--space-4); border: 0; border-top: 1px solid var(--color-border); background: none; color: inherit; font: inherit; text-align: left; cursor: pointer; }
 .chat-row:first-child { border-top: 0; }
 .chat-row:hover { background: var(--color-surface-hover); }
-.chat-row[aria-current="true"] { background: var(--color-accent-soft); }
+/* Выбранный чат: заливка и полоска слева */
+.chat-row[aria-current="true"] { background: var(--color-accent-soft); box-shadow: inset 3px 0 0 var(--color-accent); }
 .chat-title { font-weight: var(--font-weight-medium); flex: 1 1 auto; min-width: 0; }
 .chat-row .row-between { flex-wrap: nowrap; }
 .chat-row .row-between > .row { flex-wrap: nowrap; flex-shrink: 0; gap: 6px; }
@@ -557,3 +559,10 @@ details.disclosure > summary:hover { color: var(--color-text); }
 .form-q .req { color: var(--color-danger); }
 .form-boxes { display: flex; flex-direction: column; gap: var(--space-1); }
 .form-check { display: flex; align-items: center; gap: var(--space-2); cursor: pointer; }
+
+/* Сенсорные экраны: цель нажатия не меньше 44 px */
+@media (pointer: coarse) {
+  .btn-sm { min-height: 44px; }
+  .btn-icon, .btn-icon.btn-sm { min-width: 44px; min-height: 44px; }
+  .chip { min-height: 36px; }
+}

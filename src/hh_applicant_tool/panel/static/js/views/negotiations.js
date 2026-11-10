@@ -84,7 +84,7 @@ async function listTab(host, ctx) {
           n.viewed ? h("span", { class: "subtle nowrap", title: "Работодатель открыл отклик" }, icon("eye", 14), h("span", { class: "sr-only" }, "Просмотрен")) : null,
           // hh называет статус без ответа «Отклик», а вкладка фильтра «Без ответа»: одно слово везде
           h("span", { class: `badge ${KIND[n.state] ? "badge-" + KIND[n.state] : ""}` }, n.state === "response" ? "Без ответа" : n.state_name)),
-        button("", { size: "sm", variant: "ghost", iconName: n.state === "discard" ? "trash" : "x", title: n.state === "discard" ? "Убрать отказ из списка" : "Отозвать отклик" }));
+        button(n.state === "discard" ? "Убрать" : "Отозвать", { size: "sm", variant: "ghost", iconName: n.state === "discard" ? "trash" : "x", title: n.state === "discard" ? "Убрать отказ из списка" : "Отозвать отклик" }));
       li.lastChild.addEventListener("click", () => hide(n, li));
       return li;
     });

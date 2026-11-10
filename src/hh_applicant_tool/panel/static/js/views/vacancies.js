@@ -135,7 +135,6 @@ async function searchTab(host, ctx) {
         h("details", { class: "disclosure" }, h("summary", null, chev(), "Описание вакансии"), h("p", { class: "muted pre-line" }, r.description)),
         field({ label: source, control: letter, help: "Можно поправить перед отправкой." }),
         h("div", { class: "row-between" }, button("Закрыть", { variant: "ghost", onClick: () => { details.hidden = true; } }), apply));
-      letter.focus();
     }));
     return card;
   }

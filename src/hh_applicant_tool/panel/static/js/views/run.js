@@ -82,6 +82,17 @@ function isDry(vals) {
 }
 
 // Один контрол для аргумента. lookups: списки резюме и шаблонов писем
+// Коды API в вариантах argparse показываем по-человечески
+const CHOICE_LABELS = {
+  REMOTE: "Удалённо", HYBRID: "Гибрид", ON_SITE: "В офисе", FIELD_WORK: "Разъездная",
+  FULL: "Полная", PART: "Частичная", PROJECT: "Проектная", VOLUNTEER: "Волонтёрство", PROBATION: "Стажировка",
+  noExperience: "Без опыта", between1And3: "1–3 года", between3And6: "3–6 лет", moreThan6: "Больше 6 лет",
+  fullDay: "Полный день", shift: "Сменный", flexible: "Гибкий", remote: "Удалённо", flyInFlyOut: "Вахта",
+  publication_time: "По дате", salary_desc: "Зарплата по убыванию", salary_asc: "Зарплата по возрастанию", relevance: "По соответствию", distance: "По удалённости",
+  RUR: "₽ рубли", USD: "$ доллары", EUR: "€ евро",
+};
+const choiceLabel = (c) => CHOICE_LABELS[c] || c;
+
 export function control(def, value, onChange, lookups) {
   const label = def.help ? def.help.split(/[.(]/)[0].trim() : def.dest;
   const shortLabel = label.length > 90 ? label.slice(0, 87) + "…" : label;
@@ -119,14 +130,14 @@ export function control(def, value, onChange, lookups) {
     return field({ ...fieldOpts, label: "Шаблон письма", control: sel, help: "Работает, когда AI для писем выключен или шаблон выбран явно." });
   }
   if (def.choices && !def.multiple) {
-    const sel = select([["", "Не задано"], ...def.choices], { value: value || "", onchange: (e) => onChange(e.target.value || undefined) });
+    const sel = select([["", "Не задано"], ...def.choices.map((c) => [c, choiceLabel(c)])], { value: value || "", onchange: (e) => onChange(e.target.value || undefined) });
     return field({ ...fieldOpts, control: sel });
   }
   if (def.choices && def.multiple) {
     const chosen = new Set(Array.isArray(value) ? value : []);
     const chips = h("div", { class: "chips", role: "group", "aria-label": shortLabel });
     for (const c of def.choices) {
-      const b = h("button", { type: "button", class: "chip", "aria-pressed": String(chosen.has(c)) }, c);
+      const b = h("button", { type: "button", class: "chip", "aria-pressed": String(chosen.has(c)), title: c }, choiceLabel(c));
       b.addEventListener("click", () => {
         chosen.has(c) ? chosen.delete(c) : chosen.add(c);
         b.setAttribute("aria-pressed", String(chosen.has(c)));

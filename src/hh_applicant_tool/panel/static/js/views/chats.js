@@ -41,7 +41,18 @@ export default async function chats(root, ctx) {
     const data = await get(`chats?${q}`);
     list = more ? [...list, ...data.items] : data.items;
     next = data.next;
+    if (!more) { try { sessionStorage.setItem(cacheKey(), JSON.stringify({ items: list, next })); } catch { /* без кэша */ } }
     return data;
+  }
+
+  // Список из прошлого открытия в этой вкладке: показываем сразу, свежий догружаем
+  const cacheKey = () => `hh-chats:${filter}`;
+  function readCache() {
+    try {
+      const c = JSON.parse(sessionStorage.getItem(cacheKey()) || "null");
+      if (c && Array.isArray(c.items)) { list = c.items; next = c.next; return true; }
+    } catch { /* нет кэша */ }
+    return false;
   }
 
   function renderList() {
@@ -77,7 +88,7 @@ export default async function chats(root, ctx) {
     const c = list.find((x) => x.id === id) || {};
     if (c.unread) { c.unread = 0; renderList(); }
 
-    const thread = h("div", { class: "chat-thread", tabindex: "0", "aria-label": "Сообщения" },
+    const thread = h("div", { class: "chat-thread", role: "log", "aria-label": "Сообщения" },
       data.messages.length ? data.messages.map(bubble) : h("p", { class: "muted" }, "Сообщений нет."));
 
     const composer = textarea({ rows: 3, placeholder: data.writable ? "Сообщение" : "В этот чат писать нельзя", disabled: !data.writable, "aria-label": "Сообщение" });
@@ -166,7 +177,13 @@ export default async function chats(root, ctx) {
       pane.scrollTop = 0;
     }
 
-    const suggestions = [...(data.options || []), ...(data.quick_replies || [])];
+    const chipsEl = h("div", { class: "chips", "aria-label": data.options && data.options.length ? "Варианты ответа" : "Быстрые ответы hh" });
+    const addChips = (items) => { for (const s of items) chipsEl.appendChild(h("button", { type: "button", class: "chip", onclick: () => fill(s) }, s)); chipsEl.hidden = !chipsEl.children.length; };
+    addChips([...(data.options || []), ...(data.quick_replies || [])]);
+    // Быстрые ответы hh приходят отдельным запросом, чтобы не задерживать переписку
+    if (!data.quick_replies && data.last_message_id && data.writable) {
+      get(`chats/${id}/quick/${data.last_message_id}`).then((r) => { if (selected === id) addChips(r.items || []); }).catch(() => {});
+    }
     mount(pane,
       h("div", { class: "card-header" },
         h("div", { class: "grow" }, h("h2", { class: "card-title truncate" }, c.title || "Чат"),
@@ -174,8 +191,7 @@ export default async function chats(root, ctx) {
         leave),
       thread,
       h("div", { class: "chat-composer" },
-        suggestions.length ? h("div", { class: "chips", "aria-label": data.options && data.options.length ? "Варианты ответа" : "Быстрые ответы hh" },
-          suggestions.map((s) => h("button", { type: "button", class: "chip", onclick: () => fill(s) }, s))) : null,
+        chipsEl,
         !c.can_ai && data.writable ? h("p", { class: "subtle" }, "Для черновика от AI обновите список чатов.") : null,
         composer,
         h("div", { class: "row-between" }, h("span", { class: "row" }, draft, formBtn), send)));
@@ -193,7 +209,8 @@ export default async function chats(root, ctx) {
     try { await load(); renderList(); } catch { /* тихо, при следующем опросе */ }
   }
 
-  try { await load(); }
+  const cached = readCache();
+  if (!cached) try { await load(); }
   catch (err) {
     if (/войдите/i.test(err.message)) {
       mount(root, pageHeader("Чаты"), h("div", { class: "card" }, empty({ iconName: "user", title: "Нужно войти в hh.ru", action: button("Войти", { variant: "primary", iconName: "login", onClick: () => ctx.navigate("login") }) })));
@@ -203,13 +220,14 @@ export default async function chats(root, ctx) {
     return;
   }
 
-  const filterCtl = segmented([["all", "Все"], ["unread", "Непрочитанные"]], filter, async (f) => { filter = f; mount(listEl, skeleton(5)); try { await load(); } catch (err) { toast(err.message, "error"); } renderList(); }, "Фильтр чатов");
+  const filterCtl = segmented([["all", "Все"], ["unread", "Непрочитанные"]], filter, async (f) => { filter = f; if (readCache()) renderList(); else mount(listEl, skeleton(5)); try { await load(); } catch (err) { toast(err.message, "error"); } renderList(); }, "Фильтр чатов");
   mount(root,
     pageHeader("Чаты", "AI готовит черновик, отправляете вы. Автоответчик ждёт 15 минут после сообщения работодателя, так что успеете ответить сами.", filterCtl,
       button("", { variant: "ghost", iconName: "refresh", title: "Обновить", onClick: (e) => busy(e.currentTarget, refresh) })),
     h("div", { class: "chats-layout" }, listEl, pane));
   renderList();
   if (selected) open(selected); else mount(pane, placeholder());
+  if (cached) refresh();
   timer = setInterval(refresh, 60000);
   return () => clearInterval(timer);
 }
