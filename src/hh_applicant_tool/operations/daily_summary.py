@@ -28,7 +28,9 @@ def summarize(records: list[dict], day: str) -> str | None:
     if not today:
         return None
     c = Counter(r.get("result") for r in today)
-    manual = [r for r in today if r.get("result") == "chat_manual"]
+    # Чат, ждущий ответа, остаётся непрочитанным и попадает в журнал при
+    # каждом запуске: считаем уникальные чаты
+    manual = list({r.get("chat_id") or r.get("url"): r for r in today if r.get("result") == "chat_manual"}.values())
     lines = [f"📊 Сводка за {day[8:10]}.{day[5:7]}"]
     applied = c["sent"]
     if applied or c["ai_rejected"] or c["error"]:

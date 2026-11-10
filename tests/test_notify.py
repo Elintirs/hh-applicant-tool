@@ -46,7 +46,8 @@ def test_summary():
         {"ts": "2026-11-11T10:00:00", "result": "sent"},
         {"ts": "2026-11-11T10:01:00", "result": "sent"},
         {"ts": "2026-11-11T10:02:00", "result": "ai_rejected"},
-        {"ts": "2026-11-11T12:00:00", "result": "chat_manual", "employer": "Acme", "vacancy": "Node.js", "url": "https://hh.ru/chat/1"},
+        {"ts": "2026-11-11T12:00:00", "result": "chat_manual", "chat_id": 1, "employer": "Acme", "vacancy": "Node.js", "url": "https://hh.ru/chat/1"},
+        {"ts": "2026-11-11T15:00:00", "result": "chat_manual", "chat_id": 1, "employer": "Acme", "vacancy": "Node.js", "url": "https://hh.ru/chat/1"},  # тот же чат в следующем запуске
         {"ts": "2026-11-10T10:00:00", "result": "sent"},  # вчера
     ]
     text = summarize(recs, "2026-11-11")
