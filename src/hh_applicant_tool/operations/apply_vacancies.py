@@ -239,6 +239,23 @@ DEFAULT_APPLY_MAIL_BODY = "{Здравствуйте|Добрый день}, {п
 LETTER_RETRY_HINT = "\n\nВ прошлом варианте были числа, которых нет в резюме: %s. Напиши заново: только цифры и факты из резюме и только из того проекта, где они указаны. Если подходящей цифры нет, пиши без неё."
 
 
+LETTER_LINK_HINT = "\n\nВ прошлом варианте была выдуманная ссылка: %s. Ссылки на GitHub и профили пиши только те, что есть в резюме; если их нет, напиши, что примеры кода покажешь на собеседовании."
+
+_PROFILE_LINK_RE = re.compile(
+    r"(?:https?://)?(?:www\.)?(?:github\.com|gitlab\.com|linkedin\.com)/[\w./-]+", re.I
+)
+
+
+def foreign_links(text: str, allowed: str) -> list[str]:
+    """Ссылки на профили (GitHub, GitLab, LinkedIn) в тексте, кроме allowed."""
+    own = allowed.lower().rstrip("/").split("://")[-1].removeprefix("www.")
+    return [
+        m.rstrip(".,;)")
+        for m in _PROFILE_LINK_RE.findall(text or "")
+        if not own or not m.lower().rstrip(".,;)/").split("://")[-1].removeprefix("www.").startswith(own)
+    ]
+
+
 def invented_numbers(text: str, source: str) -> list[str]:
     """Числа из text, которых нет в source. Целые до 9 пропускаем:
     «4 приложения», «2-3 года» не повод переписывать письмо."""
@@ -1121,13 +1138,20 @@ class Operation(BaseOperation):
             # Модель придумывала цифры («ускорило на 30 %»): число из письма
             # должно быть в резюме или вакансии, иначе переписываем один раз
             source = " ".join(str(v) for v in message_placeholders.values())
-            if bad := invented_numbers(letter, source):
+            github = message_placeholders.get("github_profile_url") or ""
+            bad = invented_numbers(letter, source)
+            fake = foreign_links(letter, github)
+            if bad or fake:
+                hint = (LETTER_RETRY_HINT % ", ".join(bad)) if bad else ""
+                if fake:
+                    hint += LETTER_LINK_HINT % ", ".join(fake)
                 letter, meta = self._ai_call(
-                    self.cover_letter_ai,
-                    prompt + LETTER_RETRY_HINT % ", ".join(bad),
-                    "письмо заново",
+                    self.cover_letter_ai, prompt + hint, "письмо заново"
                 )
-                meta["invented"] = bad
+                meta["invented"] = bad + fake
+            # Ссылку на чужой профиль не отправляем, даже если модель упорствует
+            for link in foreign_links(letter, github):
+                letter = letter.replace(link, "").replace("  ", " ")
             self._note(letter_ai=meta)
         else:
             template = self._match_letter_template(vacancy)

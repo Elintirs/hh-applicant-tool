@@ -104,3 +104,10 @@ def test_extract_letter_ask():
     )
     assert av.extract_letter_ask("Как откликнуться: В отклике укажи: Резюме и GitHub.").startswith("В отклике укажи")
     assert av.extract_letter_ask("Обычная вакансия без просьб. Ждём отклики.") == ""
+
+
+def test_foreign_links():
+    t = "Код: github.com/nikita и https://github.com/Elintirs/hh-applicant-tool."
+    assert av.foreign_links(t, "") == ["github.com/nikita", "https://github.com/Elintirs/hh-applicant-tool"]
+    assert av.foreign_links(t, "https://github.com/Elintirs") == ["github.com/nikita"]
+    assert av.foreign_links("Примеры покажу на собеседовании.", "") == []
