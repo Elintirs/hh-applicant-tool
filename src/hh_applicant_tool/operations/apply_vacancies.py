@@ -112,7 +112,7 @@ DEFAULT_COVER_LETTER_SYSTEM_PROMPT = """\
 
 Ограничения:
 - Всего 2-4 предложения до подписи, не больше 450 знаков.
-- Только факты из резюме. Чего нет в резюме, не упоминай.
+- Только факты из резюме. Чего нет в резюме, не упоминай. Каждую цифру бери из резюме вместе с проектом, к которому она относится: не переноси факты между проектами и не придумывай проценты.
 - Пиши как человек в чате с рекрутером: просто, коротко, без пафоса. Названия технологий латиницей.
 - Запрещено: «откликаюсь на позицию», «имею N лет опыта», «как указано в вакансии», «соответствует требованиям», «готов обсудить, как мой опыт поможет», «буду рад», «уверен», «ценный», «значительно», «эффективно», «успешно», «команда профессионалов», «динамично», «рассмотрите моё резюме», вопросы про зарплату.
 - Не пересказывай вакансию и не хвали компанию.
@@ -224,6 +224,22 @@ TEST_MULTIPLE_HINT = "\n\nМожно выбрать несколько вари�
 
 DEFAULT_APPLY_MAIL_SUBJECT = "{Отклик|Резюме} на вакансию %(vacancy_name)s"
 DEFAULT_APPLY_MAIL_BODY = "{Здравствуйте|Добрый день}, {прошу рассмотреть|пожалуйста рассмотрите} мое резюме %(resume_url)s на вакансию %(vacancy_name)s."
+
+
+LETTER_RETRY_HINT = "\n\nВ прошлом варианте были числа, которых нет в резюме: %s. Напиши заново: только цифры и факты из резюме и только из того проекта, где они указаны. Если подходящей цифры нет, пиши без неё."
+
+
+def invented_numbers(text: str, source: str) -> list[str]:
+    """Числа из text, которых нет в source. Целые до 9 пропускаем:
+    «4 приложения», «2-3 года» не повод переписывать письмо."""
+    def nums(s: str) -> list[str]:
+        return re.findall(r"\d+(?:\.\d+)?", s.replace(",", "."))
+
+    known = set(nums(source))
+    return list(dict.fromkeys(
+        n for n in nums(text)
+        if n not in known and ("." in n or int(n) > 9)
+    ))
 
 
 def append_journal(config_dir: Any, rec: dict) -> None:
@@ -1066,6 +1082,16 @@ class Operation(BaseOperation):
             letter, meta = self._ai_call(
                 self.cover_letter_ai, prompt, "письмо"
             )
+            # Модель придумывала цифры («ускорило на 30 %»): число из письма
+            # должно быть в резюме или вакансии, иначе переписываем один раз
+            source = " ".join(str(v) for v in message_placeholders.values())
+            if bad := invented_numbers(letter, source):
+                letter, meta = self._ai_call(
+                    self.cover_letter_ai,
+                    prompt + LETTER_RETRY_HINT % ", ".join(bad),
+                    "письмо заново",
+                )
+                meta["invented"] = bad
             self._note(letter_ai=meta)
         else:
             template = self._match_letter_template(vacancy)

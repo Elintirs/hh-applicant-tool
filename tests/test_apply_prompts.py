@@ -86,3 +86,9 @@ def test_pick_test_ids():
     assert pick_test_ids("ID: 102.", ids, True) == ["102"]
     # мусор без ID: самый похожий вариант, а не падение
     assert pick_test_ids("нет", ids, True)[0] in ids
+
+
+def test_invented_numbers():
+    src = "Ускорил сборку на 35%. Главная 4,6 с вместо 17,3 с, 1,7 МБ. 6 г. 4 мес."
+    assert av.invented_numbers("Ускорил на 35% и до 4,6 с, 4 приложения", src) == []
+    assert av.invented_numbers("ускорило цикл на 30 %, совпадение 100 %, 4.5 раза", src) == ["30", "100", "4.5"]
