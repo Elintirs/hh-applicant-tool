@@ -52,7 +52,32 @@ def _sent_keys(state_dir: Path) -> list[str]:
         return []
 
 
-def send(config: Any, text: str, *, key: str | None = None, state_dir: Path | None = None) -> bool:
+def keyboard(rows: list[list[tuple[str, str]]] | None) -> dict | None:
+    """Inline-кнопки: (текст, значение). Значение http… — ссылка, иначе
+    callback_data для бота панели (не длиннее 64 байт)."""
+    if not rows:
+        return None
+    return {"inline_keyboard": [
+        [{"text": t, "url": v} if v.startswith("http") else {"text": t, "callback_data": v} for t, v in row]
+        for row in rows
+    ]}
+
+
+def send_message(token: str, chat_id: str, text: str, buttons: list[list[tuple[str, str]]] | None = None) -> dict:
+    payload: dict[str, Any] = {"chat_id": chat_id, "text": text[:4000], "disable_web_page_preview": True}
+    if kb := keyboard(buttons):
+        payload["reply_markup"] = kb
+    return _call(token, "sendMessage", payload).get("result") or {}
+
+
+def send(
+    config: Any,
+    text: str,
+    *,
+    key: str | None = None,
+    state_dir: Path | None = None,
+    buttons: list[list[tuple[str, str]]] | None = None,
+) -> bool:
     """Шлёт text в настроенный чат. key + state_dir: не слать одно и то же
     событие дважды (чат «ответить самому» висит непрочитанным много запусков).
     Ошибки не пробрасывает: уведомление не должно ронять задачу."""
@@ -62,7 +87,7 @@ def send(config: Any, text: str, *, key: str | None = None, state_dir: Path | No
     if key and state_dir and key in _sent_keys(state_dir):
         return False
     try:
-        _call(token, "sendMessage", {"chat_id": chat_id, "text": text[:4000], "disable_web_page_preview": True})
+        send_message(token, chat_id, text, buttons)
     except RuntimeError as ex:
         logger.warning("Не отправил уведомление: %s", ex)
         return False

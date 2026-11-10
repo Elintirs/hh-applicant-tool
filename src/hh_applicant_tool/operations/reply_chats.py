@@ -1165,9 +1165,14 @@ class Operation(BaseOperation):
                     notify.send(
                         self.tool.config,
                         f"🙋 Ответить самому\n{rec['employer']} · {rec['vacancy']}\n\n"
-                        f"«{rec['message'][:500]}»\n\n{rec['url']}",
+                        f"«{rec['message'][:500]}»\n\n{rec['url']}\n↩️ Ответь на это сообщение, чтобы написать работодателю",
                         key=f"chat:{chat.chat_id}:{chat.last_message_id}",
                         state_dir=self.tool.config_dir_path,
+                        # Кнопки обрабатывает бот панели; ответить можно реплаем
+                        buttons=[
+                            [("Открыть в hh", rec["url"])],
+                            [("✍️ Черновик AI", f"d:{chat.chat_id}"), ("✅ Готово", f"x:{chat.chat_id}")],
+                        ],
                     )
                 return
 

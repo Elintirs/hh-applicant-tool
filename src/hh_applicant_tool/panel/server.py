@@ -44,6 +44,7 @@ from .ollama import Ollama, OllamaError
 from .runner import FAILED, FINAL, JobManager
 from .scheduler import Scheduler, ScheduleError
 from .settings import AI_TASK_KEYS, Settings, SettingsError
+from .telegram_bot import TelegramBot
 from .stats import Stats
 from .store import PanelStore
 
@@ -1140,6 +1141,9 @@ def serve(
         server.ssl_ctx = remote.ssl_context(cert, key)
         app.net["fingerprint"] = remote.fingerprint(cert)
     app.scheduler.start()
+    # Бот сам ждёт, пока на вкладке «Уведомления» зададут токен и chat id
+    bot = TelegramBot(app)
+    bot.start()
     scheme = "https" if tls else "http"
     print(f"Панель: {scheme}://localhost:{public_port or port}", flush=True)
     for x in hosts:
@@ -1152,6 +1156,7 @@ def serve(
     except KeyboardInterrupt:
         pass
     finally:
+        bot.stop()
         app.scheduler.stop()
         app.jobs.shutdown()
         server.server_close()
