@@ -35,14 +35,16 @@ CHOICE_TYPES = {RADIO, DROPDOWN, CHECKBOX}
 # Типы, которые сами по себе не вопросы или мы не заполняем
 SKIP_TYPES = {6, 8, 11}  # заголовок секции, разрыв страницы, картинка
 
-_CHOICE_PROMPT = _TEST_RESUME_BLOCK + """
+_FORM_LINKS = "Ссылка на твоё резюме: %(resume_url)s\n"
+
+_CHOICE_PROMPT = _TEST_RESUME_BLOCK + _FORM_LINKS + """
 Вопрос анкеты: %(question)s
 Варианты:
 %(reply_options)s
 
 Выбери подходящий вариант. Ответь только его текстом, без пояснений."""
 
-_TEXT_PROMPT = _TEST_RESUME_BLOCK + """
+_TEXT_PROMPT = _TEST_RESUME_BLOCK + _FORM_LINKS + """
 Вопрос анкеты: %(question)s"""
 
 
@@ -140,6 +142,7 @@ def answer_form(
     """Заполняет форму ответами модели. chat — AIChat (как у тестов).
     Возвращает пары (вопрос, ответ): строка, либо список для чекбоксов."""
     out: list[tuple[Question, Any]] = []
+    placeholders = {"resume_url": "", **placeholders}
     for q in form.questions:
         if q.type in CHOICE_TYPES and q.options:
             prompt = render_template(

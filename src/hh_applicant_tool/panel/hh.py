@@ -457,6 +457,8 @@ class HHService:
                 )
             form = gforms.fetch_form(url)
             placeholders = op.get_chat_placeholders(chat)
+            resumes = {r["id"]: r for r in self.tool().get_resumes()}
+            placeholders["resume_url"] = (resumes.get(chat.resume_id) or {}).get("alternate_url", "")
             answers = gforms.answer_form(form, placeholders, self._form_ai)
             self._done()
         return {
