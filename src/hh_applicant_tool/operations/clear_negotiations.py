@@ -19,9 +19,25 @@ class Namespace(BaseNamespace):
     cleanup: bool
     blacklist_discard: bool
     older_than: int
+    hide_stale: int | None
     dry_run: bool
     delete_chat: bool
     block_ats: bool
+
+
+def stale_responses(
+    negotiations, days: int, now: dt.datetime | None = None
+) -> list[dict]:
+    """Отклики без реакции работодателя (state=response), ещё не скрытые
+    и без движения дольше days дней. Приглашения и отказы не попадают."""
+    now = now or dt.datetime.now(dt.timezone.utc)
+    return [
+        n
+        for n in negotiations
+        if n["state"]["id"] == "response"
+        and not n.get("hidden")
+        and (now - parse_api_datetime(n["updated_at"])).days > days
+    ]
 
 
 class Operation(BaseOperation):
@@ -44,6 +60,12 @@ class Operation(BaseOperation):
             help="Удаляет любые отклики старше N дней",
         )
         parser.add_argument(
+            "--hide-stale",
+            type=int,
+            metavar="ДНЕЙ",
+            help="Скрыть отклики без реакции работодателя старше N дней. Отклик не отзывается, работодатель ничего не получает",
+        )
+        parser.add_argument(
             "-d",
             "--delete-chat",
             action="store_true",
@@ -62,7 +84,22 @@ class Operation(BaseOperation):
     def run(self, tool: HHApplicantTool, args: Namespace) -> None:
         self.tool = tool
         self.args = args
-        self.clear()
+        if args.hide_stale:
+            self.hide_stale(args.hide_stale)
+        else:
+            self.clear()
+
+    def hide_stale(self, days: int) -> None:
+        """Убирает из списка тихие отклики, не трогая сам отклик."""
+        for n in stale_responses(self.tool.get_negotiations(), days):
+            vacancy = n["vacancy"]
+            if not self.args.dry_run:
+                self.delete_chat(n["id"])
+            print(
+                "🙈 Скрыли тихий отклик" if not self.args.dry_run else "dry-run: скрыли бы",
+                vacancy.get("alternate_url"),
+                vacancy.get("name"),
+            )
 
     # Эти все функции нужно пособрать и перенести в HHApplicantTool
     def delete_chat(self, topic: int | str) -> bool:
