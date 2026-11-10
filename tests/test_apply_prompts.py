@@ -12,7 +12,7 @@ RESUME = {
     k: "x"
     for k in (
         "first_name resume_title resume_total_experience resume_skills "
-        "resume_about resume_experience resume_salary resume_work_format known_skills"
+        "resume_about resume_experience resume_salary resume_work_format known_skills github_profile_url"
     ).split()
 }
 
@@ -92,3 +92,15 @@ def test_invented_numbers():
     src = "Ускорил сборку на 35%. Главная 4,6 с вместо 17,3 с, 1,7 МБ. 6 г. 4 мес."
     assert av.invented_numbers("Ускорил на 35% и до 4,6 с, 4 приложения", src) == []
     assert av.invented_numbers("ускорило цикл на 30 %, совпадение 100 %, 4.5 раза", src) == ["30", "100", "4.5"]
+
+
+def test_extract_letter_ask():
+    long = "Мы делаем платформу. " * 200  # просьба в самом конце, после 3000 знаков
+    d = long + "Стек: Node.js. В сопроводительном письме напишите пожалуйста: 1. Пару слов о себе. 2. Ссылку на GitHub. 3. Когда готовы начать."
+    ask = av.extract_letter_ask(d)
+    assert ask.startswith("В сопроводительном письме") and "GitHub" in ask and "готовы начать" in ask
+    assert "укажите в сопроводительном письме" in av.extract_letter_ask(
+        "Откликнитесь и укажите в сопроводительном письме желаемый доход, а также добавьте фразу «Дочитал до конца»."
+    )
+    assert av.extract_letter_ask("Как откликнуться: В отклике укажи: Резюме и GitHub.").startswith("В отклике укажи")
+    assert av.extract_letter_ask("Обычная вакансия без просьб. Ждём отклики.") == ""
