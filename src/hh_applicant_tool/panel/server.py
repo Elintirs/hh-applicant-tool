@@ -877,6 +877,15 @@ def make_handler(app: PanelApp) -> type[BaseHTTPRequestHandler]:
     def chat_draft(h: Handler, chat_id: str) -> None:
         h.json({"text": app.ctx().service.chat_ai_draft(int(chat_id))})
 
+    @route("POST", "chats/:chat_id/form")
+    def chat_form(h: Handler, chat_id: str) -> None:
+        h.json(app.ctx().service.chat_form_draft(int(chat_id)))
+
+    @route("POST", "chats/:chat_id/form/submit")
+    def chat_form_submit(h: Handler, chat_id: str) -> None:
+        answers = h.body().get("answers") or []
+        h.json(app.ctx().service.chat_form_submit(int(chat_id), answers))
+
     # ---- вакансии и чёрные списки -------------------------------------------
 
     def vac_args(body: dict) -> list[str]:

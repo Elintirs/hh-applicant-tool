@@ -28,6 +28,7 @@ from ..errors import OperationError
 from ..operations import apply_vacancies as av
 from ..operations import clear_negotiations as cn
 from ..operations import reply_chats as rc
+from .. import google_forms as gforms
 from ..tool import BaseNamespace, HHApplicantTool
 from ..utils.string import strip_tags
 
@@ -127,6 +128,7 @@ class HHService:
         self._tool: PanelTool | None = None
         self._chat_op: rc.Operation | None = None
         self._chat_cache: dict[int, rc.ProcessingChat] = {}
+        self._form_ai: Any = None
 
     # ---- инструмент ----------------------------------------------------
 
@@ -152,6 +154,7 @@ class HHService:
             self._tool = None
             self._chat_op = None
             self._chat_cache.clear()
+            self._form_ai = None
 
     def logged_in(self) -> bool:
         return bool(self.tool().token_config.get("token"))
@@ -421,6 +424,95 @@ class HHService:
         if not text:
             raise RuntimeError("Модель не предложила ответ")
         return text
+
+
+    # ---- анкеты Google Forms в чатах ------------------------------------
+
+    def _chat_form_url(self, chat_id: int) -> tuple[rc.Operation, rc.ProcessingChat, str]:
+        op = self._chats()
+        chat = self._chat_cache.get(chat_id)
+        if chat is None:
+            raise RuntimeError("Обновите список чатов и попробуйте снова")
+        url = gforms.find_form_url(chat.last_message.get("text") or "")
+        if not url:
+            raise RuntimeError("В последнем сообщении нет ссылки на Google-форму")
+        return op, chat, url
+
+    def chat_has_form(self, chat_id: int) -> bool:
+        chat = self._chat_cache.get(chat_id)
+        return bool(chat and gforms.find_form_url(chat.last_message.get("text") or ""))
+
+    def chat_form_draft(self, chat_id: int) -> dict[str, Any]:
+        """Скачивает анкету по ссылке из чата и заполняет ответами модели.
+        Ничего не отправляет: возвращает черновик для проверки в панели."""
+        with self.lock:
+            op, chat, url = self._chat_form_url(chat_id)
+            if not op.ai_enabled:
+                raise RuntimeError("AI не настроен. Укажите модель в разделе «Модели»")
+            if self._form_ai is None:
+                self._form_ai = self.tool().ai_chat_for(
+                    "openai.test_solver",
+                    system_prompt=av.DEFAULT_TEST_SYSTEM_PROMPT,
+                    temperature=0.2,
+                )
+            form = gforms.fetch_form(url)
+            placeholders = op.get_chat_placeholders(chat)
+            answers = gforms.answer_form(form, placeholders, self._form_ai)
+            self._done()
+        return {
+            "url": url,
+            "title": form.title,
+            "needs_login": form.needs_login,
+            "questions": [
+                {
+                    "entry_id": q.entry_id,
+                    "title": q.title,
+                    "type": q.type,
+                    "options": q.options,
+                    "multiple": q.multiple,
+                    "value": value,
+                }
+                for q, value in answers
+            ],
+        }
+
+    def chat_form_submit(self, chat_id: int, answers: list[dict]) -> dict[str, Any]:
+        """Отправляет анкету (возможно, с правками пользователя) и пишет в чат."""
+        with self.lock:
+            op, chat, url = self._chat_form_url(chat_id)
+            form = gforms.fetch_form(url)  # свежий fbzx
+            by_id = {q.entry_id: q for q in form.questions}
+            pairs = [
+                (by_id[int(a["entry_id"])], a.get("value"))
+                for a in answers
+                if int(a["entry_id"]) in by_id
+            ]
+            ok = gforms.submit_form(form, pairs)
+            rec = {
+                "kind": "chat",
+                "ts": datetime.now().isoformat(timespec="seconds"),
+                "chat_id": chat_id,
+                "vacancy": chat.vacancy.get("name") or "",
+                "employer": (chat.vacancy.get("company") or {}).get("name") or "",
+                "url": op.chat_referer(chat_id),
+                "message": "Анкета: " + url,
+                "result": "form_sent" if ok else "form_error",
+                "form": [
+                    {"q": p[0].title[:300], "answer": p[1]} for p in pairs
+                ],
+            }
+            av.append_journal(self.tool().config_dir_path, rec)
+            if ok:
+                try:
+                    op.notify_chat_opened(chat_id)
+                    op.send_chat_message(chat_id, "Заполнил анкету по ссылке.",
+                                         refer_url=op.chat_referer(chat_id))
+                except Exception:  # noqa: BLE001
+                    logger.warning("Анкета отправлена, но сообщение в чат не ушло")
+            self._done()
+        if not ok:
+            raise RuntimeError("Google не принял анкету. Проверьте в панели и заполните вручную")
+        return {"ok": True}
 
     # ---- вакансии --------------------------------------------------------
 

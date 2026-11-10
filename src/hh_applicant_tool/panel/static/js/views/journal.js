@@ -13,6 +13,8 @@ const RESULTS = {
   chat_manual: ["Ответить самому", "warning"],
   chat_dry_run: ["Чат: dry-run", "info"],
   chat_left: ["Вышел из чата", "info"],
+  form_sent: ["Анкета отправлена", "success"],
+  form_error: ["Анкета: ошибка", "danger"],
 };
 
 // Один вызов модели: что ушло на вход и что вернулось
@@ -42,6 +44,7 @@ function entry(r) {
       ...tests,
       r.kind === "chat" && r.message ? h("div", { class: "subtle" }, "Работодатель: ", r.message.replace(/\s+/g, " ").slice(0, 300)) : null,
       r.chat_ai ? aiCall("Ответ в чат", r.chat_ai) : r.reply ? h("pre", { class: "mono ai-text" }, r.reply) : null,
+      r.form ? h("div", { class: "stack-sm" }, r.form.map((f) => h("div", { class: "ai-part" }, h("div", { class: "field-label" }, f.q), h("div", null, Array.isArray(f.answer) ? f.answer.join(", ") : (f.answer || "—"))))) : null,
       r.error ? h("div", { class: "field-error" }, r.error) : null));
 }
 

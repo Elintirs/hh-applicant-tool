@@ -1,7 +1,7 @@
 import { get, post } from "../api.js";
 import {
   h, mount, clear, button, textarea, toast, busy, empty, skeleton, errorState, pageHeader, segmented,
-  relTime, confirmDialog,
+  relTime, confirmDialog, select, callout,
 } from "../ui.js";
 
 const STATE = {
@@ -113,6 +113,59 @@ export default async function chats(root, ctx) {
       catch (err) { toast(err.message, "error"); }
     });
 
+    const formRe = /https?:\/\/(forms\.gle\/\S+|docs\.google\.com\/forms\/\S+)/i;
+    const hasForm = data.writable && [...data.messages].reverse().some((m) => !m.mine && formRe.test(m.text || ""));
+    const formBtn = hasForm ? button("Заполнить анкету", { iconName: "sparkle" }) : null;
+    if (formBtn) formBtn.addEventListener("click", () => busy(formBtn, async () => {
+      let draftData;
+      try { draftData = await post(`chats/${id}/form`); }
+      catch (err) { toast(err.message, "error"); return; }
+      openForm(draftData);
+    }));
+
+    function openForm(f) {
+      const controls = f.questions.map((q) => {
+        let input;
+        if ((q.type === 2 || q.type === 3) && q.options.length) {
+          input = select([["", "— не отвечать —"], ...q.options.map((o) => [o, o])], { value: q.value || "" });
+        } else if (q.type === 4 && q.options.length) {
+          const picked = Array.isArray(q.value) ? q.value : [];
+          const boxes = q.options.map((o) => {
+            const cb = h("input", { type: "checkbox", value: o, checked: picked.includes(o) });
+            return h("label", { class: "form-check" }, cb, h("span", null, o));
+          });
+          input = h("div", { class: "form-boxes", dataset: { group: "1" } }, ...boxes);
+        } else {
+          input = textarea({ rows: 2, value: q.value || "" });
+        }
+        return h("div", { class: "form-q" },
+          h("div", { class: "field-label" }, q.title, q.required ? h("span", { class: "req" }, " *") : null),
+          input);
+      });
+      const submit = button("Отправить анкету", { variant: "primary", iconName: "send" });
+      const cancel = button("Отмена", { variant: "ghost", onClick: () => open(id) });
+      submit.addEventListener("click", () => busy(submit, async () => {
+        const answers = f.questions.map((q, i) => {
+          const el = controls[i].lastChild;
+          let value;
+          if (el.dataset && el.dataset.group) value = [...el.querySelectorAll("input:checked")].map((c) => c.value);
+          else value = el.value;
+          return { entry_id: q.entry_id, value };
+        });
+        try { await post(`chats/${id}/form/submit`, { answers }); toast("Анкета отправлена"); await load(); renderList(); open(id); }
+        catch (err) { toast(err.message, "error"); }
+      }));
+      mount(pane,
+        h("div", { class: "card-header" },
+          h("div", { class: "grow" }, h("h2", { class: "card-title truncate" }, "Анкета: " + (f.title || "Google Forms")),
+            h("p", { class: "card-hint" }, "Ответы заполнены моделью. Проверьте и отправьте, отправка необратима.")),
+          cancel),
+        f.needs_login ? callout("warning", "Форма может требовать вход в Google. Если не отправится, заполните вручную: ", h("a", { href: f.url, target: "_blank", rel: "noopener noreferrer" }, "открыть анкету")) : null,
+        h("div", { class: "card-body stack form-editor" }, ...controls),
+        h("div", { class: "card-body row-between" }, cancel, submit));
+      pane.scrollTop = 0;
+    }
+
     const suggestions = [...(data.options || []), ...(data.quick_replies || [])];
     mount(pane,
       h("div", { class: "card-header" },
@@ -125,7 +178,7 @@ export default async function chats(root, ctx) {
           suggestions.map((s) => h("button", { type: "button", class: "chip", onclick: () => fill(s) }, s))) : null,
         !c.can_ai && data.writable ? h("p", { class: "subtle" }, "Для черновика от AI обновите список чатов.") : null,
         composer,
-        h("div", { class: "row-between" }, draft, send)));
+        h("div", { class: "row-between" }, h("span", { class: "row" }, draft, formBtn), send)));
     thread.scrollTop = thread.scrollHeight;
     // На телефоне список и переписка друг под другом: показываем переписку
     if (matchMedia("(max-width: 1080px)").matches) pane.scrollIntoView({ block: "start" });

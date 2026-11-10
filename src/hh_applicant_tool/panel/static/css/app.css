@@ -550,3 +550,10 @@ details.disclosure > summary:hover { color: var(--color-text); }
 .fingerprint { display: block; word-break: break-all; font-size: var(--font-size-xs); }
 .steps { padding-left: 1.2em; margin: 0; }
 .list-flush .list-item { padding-left: 0; padding-right: 0; flex-wrap: wrap; }
+
+/* Редактор анкеты Google Forms в чате */
+.form-editor { gap: var(--space-4); }
+.form-q { display: flex; flex-direction: column; gap: var(--space-1); }
+.form-q .req { color: var(--color-danger); }
+.form-boxes { display: flex; flex-direction: column; gap: var(--space-1); }
+.form-check { display: flex; align-items: center; gap: var(--space-2); cursor: pointer; }
