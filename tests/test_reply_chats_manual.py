@@ -6,7 +6,7 @@ from hh_applicant_tool.operations import reply_chats as rc
 
 def make(tmp_path, reply):
     op = object.__new__(rc.Operation)
-    op.tool = type("Tool", (), {"config_dir_path": tmp_path, "ai_enabled": True})()
+    op.tool = type("Tool", (), {"config_dir_path": tmp_path, "ai_enabled": True, "config": {}})()
     op.dry_run, op.calls = False, []
     op.chat_referer = lambda chat_id: f"https://hh.ru/chat/{chat_id}"
     op.get_ai_reply = lambda chat, allow_manual=False: reply

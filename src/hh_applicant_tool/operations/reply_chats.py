@@ -23,6 +23,7 @@ from ..errors import XHRError
 from ..tool import BaseNamespace, BaseOperation
 from ..utils.date import parse_api_datetime
 from ..utils.string import choose_similar, render_template, shorten, split_words
+from .. import notify
 from .apply_vacancies import ai_call, append_journal
 
 if TYPE_CHECKING:
@@ -1159,6 +1160,15 @@ class Operation(BaseOperation):
                 manual = True
                 rec["result"] = "chat_manual"
                 print(f"🙋 Чат #{chat.chat_id}: ответить самому ({rec['employer']})")
+                if not self.dry_run:
+                    # Один раз на сообщение: чат висит непрочитанным много запусков
+                    notify.send(
+                        self.tool.config,
+                        f"🙋 Ответить самому\n{rec['employer']} · {rec['vacancy']}\n\n"
+                        f"«{rec['message'][:500]}»\n\n{rec['url']}",
+                        key=f"chat:{chat.chat_id}:{chat.last_message_id}",
+                        state_dir=self.tool.config_dir_path,
+                    )
                 return
 
             if self.is_farewell(send_message):

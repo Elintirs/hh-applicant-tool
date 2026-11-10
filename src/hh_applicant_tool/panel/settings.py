@@ -20,6 +20,7 @@ from ..constants import CONFIG_FILENAME
 from ..utils.config import ConfigTOML
 from ..utils.helpers import get_proxies_dict
 from ..utils.string import rand_text, render_template
+from .. import notify
 
 # Задачи, для которых утилита берёт свою секцию [openai.<key>]. Всё, что не
 # задано в секции, наследуется из [openai.default]
@@ -156,6 +157,34 @@ class Settings:
         except FileNotFoundError:
             return False
         return any(line.lstrip().startswith("#") for line in text.splitlines())
+
+    # ---- Telegram ------------------------------------------------------
+
+    def read_telegram(self) -> dict[str, Any]:
+        # Токен наружу не отдаём: только признак, что он задан
+        token, chat_id = notify.settings(self._config())
+        return {"token_set": bool(token), "chat_id": chat_id, "configured": bool(token and chat_id)}
+
+    def save_telegram(self, token: str | None, chat_id: str) -> dict[str, Any]:
+        old_token, _ = notify.settings(self._config())
+        token = (token or "").strip() or old_token
+        chat_id = str(chat_id or "").strip()
+        if token and not notify.TOKEN_RE.match(token):
+            raise SettingsError("Токен не похож на токен бота: вида 123456789:AA…")
+        if chat_id and not chat_id.lstrip("-").isdigit():
+            raise SettingsError("chat id — это число, например 123456789")
+        text = self.path.read_text(encoding="utf-8") if self.path.exists() else ""
+        new = notify.upsert_section(text, {"bot_token": token, "chat_id": chat_id})
+        tomllib.loads(new)  # не пишем битый конфиг
+        self._backup()
+        self.path.write_text(new, encoding="utf-8")
+        return self.read_telegram()
+
+    def telegram_token(self, override: str | None = None) -> str:
+        token = (override or "").strip() or notify.settings(self._config())[0]
+        if not token:
+            raise SettingsError("Сначала вставьте токен бота")
+        return token
 
     # ---- сырой TOML ----------------------------------------------------
 

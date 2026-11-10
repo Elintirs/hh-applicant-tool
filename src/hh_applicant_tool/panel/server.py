@@ -32,6 +32,7 @@ import requests
 
 from ..ai.base import AIError
 from ..api.errors import ApiError as HHApiError
+from .. import notify
 from ..errors import OperationError
 from ..operations import apply_vacancies as av
 from ..utils.package import PACKAGE_NAME, get_package_version, parse_version
@@ -40,7 +41,7 @@ from .hh import CaptchaBroker, HHService, friendly_error
 from . import remote
 from .introspect import build_schema, operation_title
 from .ollama import Ollama, OllamaError
-from .runner import FINAL, JobManager
+from .runner import FAILED, FINAL, JobManager
 from .scheduler import Scheduler, ScheduleError
 from .settings import AI_TASK_KEYS, Settings, SettingsError
 from .stats import Stats
@@ -128,6 +129,20 @@ class PanelApp:
         # Вход и выход меняют token.json: сбросим кэш утилиты профиля
         if job.args and job.args[0] in ("authorize", "authenticate", "auth", "login", "logout", "exit"):
             self.ctx(job.profile).service.reset()
+        # Упавшую задачу из расписания никто не видит: сообщим в Telegram.
+        # Ручные запуски человек и так смотрит в панели
+        if job.status == FAILED and job.source.startswith("schedule:"):
+            threading.Thread(target=self._notify_failed, args=(job,), daemon=True).start()
+
+    def _notify_failed(self, job) -> None:
+        try:
+            tool = self.ctx(job.profile).service.tool()
+            log = self.jobs._log_path(job.id)
+            lines = [ln for ln in log.read_text(encoding="utf-8", errors="replace").splitlines() if ln.strip()] if log.exists() else []
+            tail = "\n".join(re.sub(r"\x1b\[[0-9;]*m", "", ln)[:200] for ln in lines[-4:])
+            notify.send(tool.config, f"❌ Задача «{job.title}» упала (код {job.exit_code})\n\n{tail}")
+        except Exception:  # noqa: BLE001
+            logger.warning("Не отправил уведомление о сбое задачи")
 
     @property
     def schema(self) -> dict[str, Any]:
@@ -800,6 +815,31 @@ def make_handler(app: PanelApp) -> type[BaseHTTPRequestHandler]:
         ctx.settings.restore_backup()
         ctx.service.reset()
         h.json(ctx.settings.read_raw())
+
+    @route("GET", "telegram")
+    def telegram_get(h: Handler) -> None:
+        h.json(app.ctx().settings.read_telegram())
+
+    @route("PUT", "telegram")
+    def telegram_put(h: Handler) -> None:
+        b = h.body()
+        h.json(app.ctx().settings.save_telegram(b.get("token"), b.get("chat_id") or ""))
+
+    @route("POST", "telegram/detect")
+    def telegram_detect(h: Handler) -> None:
+        token = app.ctx().settings.telegram_token(h.body().get("token"))
+        h.json({"chats": notify.find_chats(token)})
+
+    @route("POST", "telegram/test")
+    def telegram_test(h: Handler) -> None:
+        b = h.body()
+        st = app.ctx().settings
+        token = st.telegram_token(b.get("token"))
+        chat_id = str(b.get("chat_id") or st.read_telegram()["chat_id"] or "").strip()
+        if not chat_id:
+            raise SettingsError("Укажите chat id")
+        notify.test(token, chat_id)
+        h.json({"ok": True})
 
     @route("GET", "models")
     def models_get(h: Handler) -> None:

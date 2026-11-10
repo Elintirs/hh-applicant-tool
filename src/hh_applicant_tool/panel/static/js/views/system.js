@@ -141,6 +141,47 @@ async function updatesTab(host, force = false) {
     h("div", { class: "row" }, check, h("span", { class: "subtle" }, u.checked_at ? `Проверено ${relTime(u.checked_at)}` : "")));
 }
 
+async function telegramTab(host) {
+  mount(host, skeleton(3));
+  let t;
+  try { t = await get("telegram"); } catch (err) { mount(host, errorState(err, () => telegramTab(host))); return; }
+  const token = input({ type: "password", autocomplete: "off", placeholder: t.token_set ? "Токен сохранён. Вставьте новый, чтобы заменить" : "123456789:AA…" });
+  const chatId = input({ inputmode: "numeric", value: t.chat_id || "", placeholder: "например 123456789" });
+  const found = h("div", { class: "chips" });
+  const body = () => ({ token: token.value.trim() || undefined, chat_id: chatId.value.trim() });
+  const detect = button("Найти мой чат", { iconName: "search" });
+  detect.addEventListener("click", () => busy(detect, async () => {
+    try {
+      const { chats } = await post("telegram/detect", { token: token.value.trim() || undefined });
+      if (!chats.length) { toast("Бот пока не получал сообщений. Напишите ему что-нибудь и нажмите ещё раз", "info"); return; }
+      mount(found, ...chats.map((c) => h("button", { type: "button", class: "chip", onclick: () => { chatId.value = c.id; } }, `${c.name || "Чат"} · ${c.id}`)));
+      if (chats.length === 1) chatId.value = chats[0].id;
+    } catch (err) { toast(err.message, "error"); }
+  }));
+  const save = button("Сохранить", { variant: "primary", iconName: "check" });
+  save.addEventListener("click", () => busy(save, async () => {
+    try { await put("telegram", body()); toast("Сохранено"); telegramTab(host); } catch (err) { toast(err.message, "error"); }
+  }));
+  const test = button("Отправить тест", { iconName: "send" });
+  test.addEventListener("click", () => busy(test, async () => {
+    try { await post("telegram/test", body()); toast("Сообщение ушло, проверьте Telegram"); } catch (err) { toast(err.message, "error"); }
+  }));
+  mount(host, h("section", { class: "card" },
+    h("div", { class: "card-header" },
+      h("div", { class: "grow" }, h("h3", null, "Уведомления в Telegram"),
+        h("p", { class: "card-hint" }, "Приходят: чат, где нужно ответить самому (собеседование, созвон, анкета, оффер), сбой задачи по расписанию и сводка за день.")),
+      h("span", { class: `badge ${t.configured ? "badge-success" : ""}` }, t.configured ? "Подключено" : "Не настроено")),
+    h("div", { class: "card-body stack" },
+      h("ol", { class: "muted steps" },
+        h("li", null, "В Telegram откройте @BotFather, отправьте /newbot и скопируйте токен."),
+        h("li", null, "Найдите своего бота и напишите ему любое сообщение."),
+        h("li", null, "Вставьте токен, нажмите «Найти мой чат», затем «Сохранить» и «Отправить тест».")),
+      field({ label: "Токен бота", control: token, help: "Хранится только в config.toml на этом компьютере, панель его не показывает." }),
+      field({ label: "Chat id", control: chatId }),
+      found,
+      h("div", { class: "row" }, detect, test, h("span", { class: "grow" }), save))));
+}
+
 export default async function system(root, ctx) {
   let tab = ctx.params.get("tab") || "connection";
   const host = h("div", { class: "stack" });
@@ -150,12 +191,13 @@ export default async function system(root, ctx) {
     if (tab === "profiles") await profilesTab(host, ctx);
     else if (tab === "log") cleanup = await logTab(host);
     else if (tab === "connection") await connectionTab(host);
+    else if (tab === "notify") await telegramTab(host);
     else await updatesTab(host);
   };
   mount(root,
-    pageHeader("Система", "Доступ с других устройств, профили аккаунтов, лог утилиты и обновления."),
+    pageHeader("Система", "Доступ с других устройств, уведомления в Telegram, профили аккаунтов, лог утилиты и обновления."),
     h("div", { class: "stack" },
-      h("div", null, segmented([["connection", "Подключение"], ["profiles", "Профили"], ["log", "Лог"], ["updates", "Обновления"]], tab, (t) => { tab = t; history.replaceState(null, "", `#/system?tab=${t}`); show(); }, "Раздел")),
+      h("div", null, segmented([["connection", "Подключение"], ["notify", "Уведомления"], ["profiles", "Профили"], ["log", "Лог"], ["updates", "Обновления"]], tab, (t) => { tab = t; history.replaceState(null, "", `#/system?tab=${t}`); show(); }, "Раздел")),
       host));
   await show();
   return () => { if (cleanup) cleanup(); };
