@@ -20,6 +20,7 @@ from .. import notify
 from ..operations.apply_vacancies import JOURNAL_FILENAME
 from ..operations.daily_summary import summarize
 from ..utils.config import ConfigTOML
+from .child import CAPTCHA_TAG
 
 if TYPE_CHECKING:
     from .server import PanelApp
@@ -43,6 +44,7 @@ COMMANDS = [
     ("run", "Запустить задачу"),
 ]
 CHAT_RE = re.compile(r"chat/(\d+)")
+CAPTCHA_RE = re.compile(re.escape(CAPTCHA_TAG) + r" ([0-9a-f]{32})")
 DONE_KEEP = 300
 
 
@@ -108,8 +110,13 @@ class TelegramBot:
             self._callback(say, cb.get("data") or "")
             return
         text = (msg.get("text") or "").strip()
-        reply_to = (msg.get("reply_to_message") or {}).get("text") or ""
-        if reply_to and not text.startswith("/"):
+        original = msg.get("reply_to_message") or {}
+        reply_to = original.get("text") or original.get("caption") or ""
+        if reply_to and text and not text.startswith("/"):
+            m = CAPTCHA_RE.search(reply_to)
+            if m:
+                say(self._captcha_answer(m.group(1), text))
+                return
             m = CHAT_RE.search(reply_to)
             if m:
                 self._confirm_send(say, int(m.group(1)), text)
@@ -159,6 +166,13 @@ class TelegramBot:
             say("Отменил, ничего не отправлено")
 
     # ---- действия ----------------------------------------------------------
+
+    def _captcha_answer(self, name: str, text: str) -> str:
+        for p in self.app.jobs.prompts():
+            if p.get("kind") == "captcha" and p.get("image") == f"{name}.png":
+                if self.app.jobs.send_input(p["job_id"], text):
+                    return "✅ Отправил капчу в задачу"
+        return "Эта капча уже неактуальна: её ввели в панели или вышло время"
 
     def _journal(self, days: int = 3) -> list[dict]:
         path = self.app.ctx().dir / JOURNAL_FILENAME

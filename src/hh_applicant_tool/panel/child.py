@@ -35,6 +35,15 @@ def emit(payload: dict) -> None:
 
 
 CAPTCHA_WAIT = 600  # сек: капчу ждём 10 минут, потом пропускаем вакансию
+CAPTCHA_TAG = "#captcha"
+
+
+def captcha_caption(name: str) -> str:
+    return (
+        "🧩 hh просит капчу. Ответьте на это сообщение текстом с картинки "
+        "или введите его в панели. Через 10 минут вакансия будет пропущена\n"
+        f"{CAPTCHA_TAG} {name}"
+    )
 
 
 def _read_answer(timeout: float | None = None) -> str:
@@ -73,17 +82,11 @@ def _patch_captcha() -> None:
         path = captcha_dir / f"{uuid.uuid4().hex}.png"
         path.write_bytes(image_data)
         emit({"kind": "captcha", "prompt": "Введите текст с картинки", "image": path.name})
-        # Капча = hh притормаживает. Сообщим в Telegram, но не чаще раза в час
+        # Ответить можно и в панели, и реплаем в Telegram: бот найдёт задачу по метке
         try:
             from .. import notify
-            from datetime import datetime
 
-            notify.send(
-                self.config,
-                "🧩 hh просит капчу. Откройте задачу в панели и введите текст с картинки, иначе через 10 минут вакансия будет пропущена",
-                key="captcha:" + datetime.now().strftime("%Y-%m-%d-%H"),
-                state_dir=self.config_dir_path,
-            )
+            notify.send_photo(self.config, image_data, captcha_caption(path.stem))
         except Exception:  # noqa: BLE001
             pass
         try:

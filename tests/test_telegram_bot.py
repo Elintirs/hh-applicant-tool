@@ -86,3 +86,21 @@ def test_pause_resume_and_run(tmp_path, outbox):
     assert submitted == []  # сначала подтверждение
     bot._handle("t", OWNER, cb("rk:apply"))
     assert submitted == [["apply-vacancies", "--ai-filter", "--max-responses=200"]]
+
+
+def test_captcha_reply_goes_to_waiting_job(tmp_path, outbox):
+    from hh_applicant_tool.panel.child import captcha_caption
+
+    bot, app, sent_hh, _ = make(tmp_path)
+    name = "a" * 32
+    inputs = []
+    app.jobs.prompts = lambda: [{"job_id": "j9", "kind": "captcha", "image": f"{name}.png"}]
+    app.jobs.send_input = lambda job_id, text: inputs.append((job_id, text)) or True
+    update = {"update_id": 3, "message": {"chat": {"id": int(OWNER)}, "text": "k7mq", "reply_to_message": {"caption": captcha_caption(name)}}}
+    bot._handle("t", OWNER, update)
+    assert inputs == [("j9", "k7mq")] and sent_hh == []
+    assert "Отправил" in outbox[-1][1]
+
+    app.jobs.prompts = lambda: []
+    bot._handle("t", OWNER, update)
+    assert "неактуальна" in outbox[-1][1]

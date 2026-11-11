@@ -70,6 +70,27 @@ def send_message(token: str, chat_id: str, text: str, buttons: list[list[tuple[s
     return _call(token, "sendMessage", payload).get("result") or {}
 
 
+def send_photo(config: Any, image: bytes, caption: str) -> bool:
+    """Картинка в настроенный чат. Ошибки не пробрасывает, как send."""
+    token, chat_id = settings(config)
+    if not token or not chat_id:
+        return False
+    try:
+        r = requests.post(
+            API.format(token=token, method="sendPhoto"),
+            data={"chat_id": chat_id, "caption": caption[:1000]},
+            files={"photo": ("captcha.png", image, "image/png")},
+            timeout=30,
+        )
+        ok = r.json().get("ok")
+    except (requests.RequestException, ValueError) as ex:
+        logger.warning("Не отправил картинку: %s", type(ex).__name__)
+        return False
+    if not ok:
+        logger.warning("Telegram не принял картинку: %s", r.status_code)
+    return bool(ok)
+
+
 def send(
     config: Any,
     text: str,
