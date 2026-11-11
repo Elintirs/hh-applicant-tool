@@ -90,7 +90,7 @@ def test_warms_up_before_ai_job_and_unloads_when_idle(monkeypatch):
     assert calls == [True]  # прогрели один раз
 
     # Следующий запуск завтра: после задачи модель выгружаем
-    s._planned["a"] = morning + timedelta(days=1, hours=1)
+    s._planned["a"] = datetime.now() + timedelta(days=1)  # от текущего времени: тест не должен стареть
     s.jobs.running = False
     s._on_job_finish(type("Job", (), {"args": ["apply-vacancies"], "profile": ".", "source": "manual"})())
     assert calls == [True, False]
