@@ -13,6 +13,7 @@ from __future__ import annotations
 
 import json
 import re
+import time
 from dataclasses import dataclass, field
 from typing import Any
 
@@ -128,8 +129,16 @@ def parse_form(html: str, final_url: str) -> Form:
 
 def fetch_form(url: str, session: requests.Session | None = None) -> Form:
     s = session or requests.Session()
-    r = s.get(url, allow_redirects=True, timeout=30,
-              headers={"User-Agent": "Mozilla/5.0"})
+    # DNS и VPN на ПК иногда моргают: пара повторов вместо ошибки в панели
+    for attempt in range(3):
+        try:
+            r = s.get(url, allow_redirects=True, timeout=30,
+                      headers={"User-Agent": "Mozilla/5.0"})
+            break
+        except (requests.ConnectionError, requests.Timeout):
+            if attempt == 2:
+                raise FormError("Не удалось открыть анкету: нет связи с Google. Попробуйте ещё раз") from None
+            time.sleep(2)
     r.raise_for_status()
     return parse_form(r.text, r.url)
 
