@@ -665,8 +665,14 @@ class HHApplicantTool:
 
         return server
 
+    def _has_captcha_model(self) -> bool:
+        # Только отдельно настроенная модель со зрением: основная текстовая
+        # картинку не прочитает и отвечает Ollama ошибкой 400
+        section = (self.config.get("openai") or {}).get("captcha") or {}
+        return bool(section.get("model"))
+
     def _solve_captcha(self, image_data: bytes) -> str:
-        if self.ai_enabled and not self.captcha_manual:
+        if self.ai_enabled and not self.captcha_manual and self._has_captcha_model():
             logger.debug("Try recognize CAPTCHA text via AI")
             return self.captcha_ai.recognize_text(image_data)
 

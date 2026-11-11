@@ -53,3 +53,13 @@ def test_summary():
     text = summarize(recs, "2026-11-11")
     assert "2 отправлено, 1 отсеял фильтр" in text and "1 ждут тебя" in text and "Acme" in text
     assert summarize(recs, "2026-11-12") is None
+
+
+def test_captcha_uses_ai_only_with_dedicated_model():
+    from hh_applicant_tool.tool import HHApplicantTool
+
+    t = object.__new__(HHApplicantTool)
+    t.config = {"openai": {"default": {"model": "gpt-oss:20b"}}}
+    assert t._has_captcha_model() is False  # текстовая модель капчу не читает
+    t.config = {"openai": {"captcha": {"model": "qwen3-vl:8b"}}}
+    assert t._has_captcha_model() is True

@@ -34,7 +34,16 @@ def emit(payload: dict) -> None:
     sys.stdout.flush()
 
 
-def _read_answer() -> str:
+CAPTCHA_WAIT = 600  # сек: капчу ждём 10 минут, потом пропускаем вакансию
+
+
+def _read_answer(timeout: float | None = None) -> str:
+    if timeout is not None:
+        import select
+
+        ready, _, _ = select.select([sys.stdin], [], [], timeout)
+        if not ready:
+            raise TimeoutError("Капчу не ввели за 10 минут, пропускаю")
     line = sys.stdin.readline()
     if not line:
         raise EOFError
@@ -64,8 +73,21 @@ def _patch_captcha() -> None:
         path = captcha_dir / f"{uuid.uuid4().hex}.png"
         path.write_bytes(image_data)
         emit({"kind": "captcha", "prompt": "Введите текст с картинки", "image": path.name})
+        # Капча = hh притормаживает. Сообщим в Telegram, но не чаще раза в час
         try:
-            answer = _read_answer()
+            from .. import notify
+            from datetime import datetime
+
+            notify.send(
+                self.config,
+                "🧩 hh просит капчу. Откройте задачу в панели и введите текст с картинки, иначе через 10 минут вакансия будет пропущена",
+                key="captcha:" + datetime.now().strftime("%Y-%m-%d-%H"),
+                state_dir=self.config_dir_path,
+            )
+        except Exception:  # noqa: BLE001
+            pass
+        try:
+            answer = _read_answer(CAPTCHA_WAIT)
         finally:
             emit({"kind": "answered"})
             try:
