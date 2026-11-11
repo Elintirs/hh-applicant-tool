@@ -70,6 +70,15 @@ export function localModelsCard({ onApplied } = {}) {
           onApplied && onApplied();
         } catch (err) { toast(err.message, "error"); }
       }));
+      // В память заранее, чтобы черновик и отклики не ждали загрузки с диска
+      const mem = button(m.loaded ? "Выгрузить" : "В память", { size: "sm", iconName: m.loaded ? "x" : "up", title: m.loaded ? "Освободить видеокарту" : "Загрузить в видеокарту на 3 часа" });
+      mem.addEventListener("click", () => busy(mem, async () => {
+        try {
+          if (!m.loaded) toast(`Загружаю ${m.name}: это до пары минут`, "info");
+          data = await post(m.loaded ? "ollama/unload" : "ollama/load", { name: m.name });
+          render(); toast(m.loaded ? "Выгружена" : "Модель в памяти");
+        } catch (err) { toast(err.message, "error"); }
+      }));
       const del = button("", { size: "sm", variant: "ghost", iconName: "trash", title: `Удалить ${m.name}` });
       del.addEventListener("click", async () => {
         if (!(await confirmDialog({ title: `Удалить ${m.name}?`, text: `Освободится ${gb(m.size)}. Чтобы вернуть модель, её придётся скачать заново.`, confirm: "Удалить", danger: true }))) return;
@@ -79,7 +88,7 @@ export function localModelsCard({ onApplied } = {}) {
         h("div", { class: "list-item-main" },
           h("div", { class: "row" }, h("span", { class: "list-item-title mono" }, m.name), m.loaded ? h("span", { class: "badge badge-success" }, "В памяти") : null),
           h("div", { class: "list-item-meta" }, [m.params, m.quant, gb(m.size)].filter(Boolean).join(" · "))),
-        h("div", { class: "row" }, target, use, del));
+        h("div", { class: "row" }, mem, target, use, del));
     }));
   }
 

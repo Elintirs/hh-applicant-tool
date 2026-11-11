@@ -601,6 +601,23 @@ def make_handler(app: PanelApp) -> type[BaseHTTPRequestHandler]:
         app.ollama.pull(str(h.body().get("name") or ""))
         h.json({"pulls": app.ollama.pulls()})
 
+    @route("POST", "ollama/load")
+    def ollama_load(h: Handler) -> None:
+        # Загрузка с диска в видеокарту идёт минутами: держим 3 часа, как перед расписанием
+        name = str(h.body().get("name") or "").strip()
+        if not name:
+            raise ApiError("Укажите модель")
+        app.ollama.keep(name, "3h")
+        h.json(app.ollama.status())
+
+    @route("POST", "ollama/unload")
+    def ollama_unload(h: Handler) -> None:
+        name = str(h.body().get("name") or "").strip()
+        if not name:
+            raise ApiError("Укажите модель")
+        app.ollama.keep(name, 0)
+        h.json(app.ollama.status())
+
     @route("POST", "ollama/delete")
     def ollama_delete(h: Handler) -> None:
         app.ollama.delete(str(h.body().get("name") or ""))
