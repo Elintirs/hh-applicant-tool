@@ -35,6 +35,7 @@ def test_send_dedup_and_no_token_leak(tmp_path, monkeypatch):
         raise requests.ConnectionError(f"Max retries exceeded with url: {url}")
 
     monkeypatch.setattr(requests, "post", boom)
+    monkeypatch.setattr(notify, "RETRY_DELAY", 0)
     try:
         notify.test(CFG["telegram"]["bot_token"], "42")
     except RuntimeError as ex:
@@ -63,3 +64,22 @@ def test_captcha_uses_ai_only_with_dedicated_model():
     assert t._has_captcha_model() is False  # текстовая модель капчу не читает
     t.config = {"openai": {"captcha": {"model": "qwen3-vl:8b"}}}
     assert t._has_captcha_model() is True
+
+
+def test_telegram_retries_dropped_tls(monkeypatch):
+    attempts = []
+
+    class R:
+        status_code = 200
+        def json(self): return {"ok": True}
+
+    def flaky(url, **kw):
+        attempts.append(url)
+        if len(attempts) < 3:
+            raise requests.exceptions.SSLError("EOF")
+        return R()
+
+    monkeypatch.setattr(requests, "post", flaky)
+    monkeypatch.setattr(notify, "RETRY_DELAY", 0)
+    assert notify.send_photo(CFG, b"png", "капча") is True
+    assert len(attempts) == 3

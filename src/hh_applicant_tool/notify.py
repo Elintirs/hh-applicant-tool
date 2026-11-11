@@ -15,6 +15,7 @@ from __future__ import annotations
 import json
 import logging
 import re
+import time
 from pathlib import Path
 from typing import Any
 
@@ -33,9 +34,24 @@ def settings(config: Any) -> tuple[str, str]:
     return str(section.get("bot_token") or "").strip(), str(section.get("chat_id") or "").strip()
 
 
+RETRIES = 3
+RETRY_DELAY = 3  # сек: канал ПК до Telegram через VPN иногда рвёт TLS
+
+
+def _post(url: str, **kw: Any) -> requests.Response:
+    for attempt in range(RETRIES):
+        try:
+            return requests.post(url, **kw)
+        except requests.ConnectionError:
+            if attempt == RETRIES - 1:
+                raise
+            time.sleep(RETRY_DELAY)
+    raise AssertionError("unreachable")
+
+
 def _call(token: str, method: str, payload: dict | None = None, timeout: float = 15) -> dict:
     try:
-        r = requests.post(API.format(token=token, method=method), json=payload or {}, timeout=timeout)
+        r = _post(API.format(token=token, method=method), json=payload or {}, timeout=timeout)
         data = r.json()
     except (requests.RequestException, ValueError) as ex:
         # В тексте исключения есть адрес с токеном: наружу только тип
@@ -76,7 +92,7 @@ def send_photo(config: Any, image: bytes, caption: str) -> bool:
     if not token or not chat_id:
         return False
     try:
-        r = requests.post(
+        r = _post(
             API.format(token=token, method="sendPhoto"),
             data={"chat_id": chat_id, "caption": caption[:1000]},
             files={"photo": ("captcha.png", image, "image/png")},
