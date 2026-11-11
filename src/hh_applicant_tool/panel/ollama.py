@@ -32,6 +32,19 @@ class OllamaError(RuntimeError):
     pass
 
 
+PULL_ATTEMPTS = 50  # при обрывах докачиваем до победного, как ночью
+PULL_RETRY_DELAY = 10  # сек между попытками
+PULL_READ_TIMEOUT = 120  # сек без единой строки от Ollama = обрыв
+PULL_STALL = 180  # сек без прироста байтов = зависло, переподключаемся
+_FATAL = ("not found", "does not exist", "manifest unknown", "invalid model", "pull model manifest: file")
+
+
+def _retryable(ex: Exception) -> bool:
+    """Сетевые сбои и зависания повторяем, отказ реестра (нет такой модели) нет."""
+    text = str(ex).lower()
+    return not any(f in text for f in _FATAL)
+
+
 class Ollama:
     def __init__(self, store: PanelStore) -> None:
         self.store = store
@@ -139,21 +152,21 @@ class Ollama:
 
     def _pull(self, name: str) -> None:
         state = self._pulls[name]
+        attempt = 0
         try:
-            with requests.post(self.url + "/api/pull", json={"model": name, "stream": True}, stream=True, timeout=(10, 600)) as r:
-                r.raise_for_status()
-                # chunk_size=None: отдавать строки сразу, а не копить по 512 байт
-                for line in r.iter_lines(chunk_size=None):
-                    if not line:
-                        continue
-                    msg = json.loads(line)
-                    if msg.get("error"):
-                        raise OllamaError(msg["error"])
+            while True:
+                attempt += 1
+                try:
+                    self._pull_once(name, state)
+                    break
+                except (requests.RequestException, OllamaError, ValueError) as ex:
+                    # Ollama докачивает с места обрыва: повторяем, пока сеть не
+                    # отпустит. «Модели нет» и прочие отказы не повторяем
+                    if not _retryable(ex) or attempt >= PULL_ATTEMPTS:
+                        raise
                     with self._lock:
-                        state["status"] = msg.get("status") or state["status"]
-                        if msg.get("total"):
-                            state["total"] = msg["total"]
-                            state["completed"] = msg.get("completed") or 0
+                        state["status"] = f"Обрыв связи, продолжаю (попытка {attempt + 1})"
+                    time.sleep(PULL_RETRY_DELAY)
             with self._lock:
                 state["status"] = "Готово"
         except (requests.RequestException, OllamaError, ValueError) as ex:
@@ -163,6 +176,29 @@ class Ollama:
         finally:
             with self._lock:
                 state["done_at"] = time.time()
+
+    def _pull_once(self, name: str, state: dict[str, Any]) -> None:
+        last_bytes, last_change = -1, time.monotonic()
+        with requests.post(self.url + "/api/pull", json={"model": name, "stream": True}, stream=True, timeout=(10, PULL_READ_TIMEOUT)) as r:
+            r.raise_for_status()
+            # chunk_size=None: отдавать строки сразу, а не копить по 512 байт
+            for line in r.iter_lines(chunk_size=None):
+                if not line:
+                    continue
+                msg = json.loads(line)
+                if msg.get("error"):
+                    raise OllamaError(msg["error"])
+                with self._lock:
+                    state["status"] = msg.get("status") or state["status"]
+                    if msg.get("total"):
+                        state["total"] = msg["total"]
+                        state["completed"] = msg.get("completed") or 0
+                # Байты идут, но почти стоят (медленная нода VPN): переподключаемся
+                done = msg.get("completed") or 0
+                if done != last_bytes:
+                    last_bytes, last_change = done, time.monotonic()
+                elif msg.get("total") and time.monotonic() - last_change > PULL_STALL:
+                    raise OllamaError("загрузка стоит: переподключаюсь")
 
     def delete(self, name: str) -> None:
         try:
