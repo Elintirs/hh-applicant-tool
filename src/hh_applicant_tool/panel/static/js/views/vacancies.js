@@ -72,31 +72,29 @@ async function searchTab(host, ctx) {
   }
 
   function vacancyCard(v) {
-    const details = h("div", { class: "vacancy-details", hidden: true });
-    const checkBtn = button("Проверить и откликнуться", { size: "sm", variant: v.skip_reason ? "" : "primary", iconName: "sparkle", disabled: !!v.skip_reason });
-    const hideBtn = button("Скрыть", { size: "sm", variant: "ghost", iconName: "ban" });
-    const hideEmpBtn = v.employer_id ? button("Скрыть компанию", { size: "sm", variant: "ghost" }) : null;
-    const card = h("article", { class: "card vacancy" },
-      h("div", { class: "card-body stack-sm" },
-        h("div", { class: "row-between" },
-          h("div", { class: "grow" },
-            h("h3", null, h("a", { href: v.url, target: "_blank", rel: "noopener noreferrer" }, v.name)),
-            h("div", { class: "subtle" }, [v.employer, v.area, v.experience, v.published_at ? relTime(Date.parse(v.published_at) / 1000) : null].filter(Boolean).join(" · "))),
-          money(v.salary) ? h("div", { class: "vacancy-salary nowrap" }, money(v.salary)) : null),
-        v.requirement || v.responsibility ? h("p", { class: "muted vacancy-snippet" }, [v.responsibility, v.requirement].filter(Boolean).join(" ")) : null,
-        h("div", { class: "row-between" },
-          h("div", { class: "row" },
+    const details = h("div", { class: "rows-editor stack", hidden: true });
+    const checkBtn = button("Проверить", { size: "sm", variant: v.skip_reason ? "" : "primary", iconName: "sparkle", disabled: !!v.skip_reason, title: "Проверить AI-фильтром и подготовить письмо" });
+    const hideBtn = button("", { size: "sm", variant: "ghost", iconName: "ban", title: "Скрыть вакансию" });
+    const hideEmpBtn = v.employer_id ? button("", { size: "sm", variant: "ghost", iconName: "x", title: `Скрыть компанию «${v.employer}»` }) : null;
+    const card = h("li", { class: "rows-item vacancy" },
+      h("div", { class: "rows-line" },
+        h("div", { class: "rows-name" },
+          h("h3", null, h("a", { href: v.url, target: "_blank", rel: "noopener noreferrer" }, v.name)),
+          h("div", { class: "subtle" }, [v.employer, v.area, v.experience, v.published_at ? relTime(Date.parse(v.published_at) / 1000) : null].filter(Boolean).join(", ")),
+          v.requirement || v.responsibility ? h("p", { class: "muted vacancy-snippet" }, [v.responsibility, v.requirement].filter(Boolean).join(" ")) : null,
+          v.skip_reason || v.has_test || v.response_letter_required ? h("div", { class: "row" },
             v.skip_reason ? h("span", { class: "badge badge-warning plain" }, v.skip_reason) : null,
             v.has_test ? h("span", { class: "badge plain" }, "Тест") : null,
-            v.response_letter_required ? h("span", { class: "badge badge-info plain" }, "Нужно письмо") : null),
-          h("div", { class: "row" }, hideEmpBtn, hideBtn, checkBtn)),
-        details));
+            v.response_letter_required ? h("span", { class: "badge badge-info plain" }, "Нужно письмо") : null) : null),
+        h("div", { class: "rows-num vacancy-salary", "data-label": "Зарплата" }, money(v.salary) || h("span", { class: "subtle" }, "–")),
+        h("div", { class: "rows-actions" }, hideEmpBtn, hideBtn, checkBtn)),
+      details);
 
     const hide = async (kind, id, label) => {
       try {
         await post("blacklist", { kind, id, on: true });
         card.classList.add("is-hidden");
-        mount(card, h("div", { class: "card-body row-between" }, h("span", { class: "muted" }, `${label} скрыта`),
+        mount(card, h("div", { class: "rows-line row-between" }, h("span", { class: "muted" }, `${label} скрыта`),
           button("Вернуть", { size: "sm", variant: "ghost", iconName: "undo", onClick: async () => {
             try { await post("blacklist", { kind, id, on: false }); card.replaceWith(vacancyCard(v)); } catch (err) { toast(err.message, "error"); }
           } })));
@@ -107,6 +105,7 @@ async function searchTab(host, ctx) {
 
     checkBtn.addEventListener("click", () => busy(checkBtn, async () => {
       details.hidden = false;
+      card.classList.add("is-open");
       mount(details, h("div", { class: "result subtle" }, "Проверяем фильтрами и готовим письмо. С AI это до минуты…"));
       let r;
       try { r = await post("vacancies/check", { args: args().opts, resume_id: state.resume_id, vacancy_id: v.id }); }
@@ -116,7 +115,7 @@ async function searchTab(host, ctx) {
       apply.addEventListener("click", () => busy(apply, async () => {
         try {
           await post("vacancies/apply", { resume_id: state.resume_id, vacancy_id: v.id, letter: letter.value });
-          mount(card, h("div", { class: "card-body row" }, icon("check", 18), h("span", null, "Отклик отправлен: "), h("a", { href: v.url, target: "_blank", rel: "noopener noreferrer" }, v.name)));
+          mount(card, h("div", { class: "rows-line row" }, icon("check", 18), h("span", null, "Отклик отправлен: "), h("a", { href: v.url, target: "_blank", rel: "noopener noreferrer" }, v.name)));
           card.classList.add("is-done");
           toast("Отклик отправлен");
         } catch (err) { toast(err.message, "error"); }
@@ -134,7 +133,7 @@ async function searchTab(host, ctx) {
         r.key_skills.length ? h("div", { class: "chips" }, r.key_skills.map((s) => h("span", { class: "chip" }, s))) : null,
         h("details", { class: "disclosure" }, h("summary", null, chev(), "Описание вакансии"), h("p", { class: "muted pre-line" }, r.description)),
         field({ label: source, control: letter, help: "Можно поправить перед отправкой." }),
-        h("div", { class: "row-between" }, button("Закрыть", { variant: "ghost", onClick: () => { details.hidden = true; } }), apply));
+        h("div", { class: "row-between" }, button("Закрыть", { variant: "ghost", onClick: () => { details.hidden = true; card.classList.remove("is-open"); } }), apply));
     }));
     return card;
   }
@@ -157,7 +156,9 @@ async function searchTab(host, ctx) {
           sessionStorage.setItem("hh-panel-schedule-draft", JSON.stringify({ name: state.values.text ? `Отклики: ${state.values.text}` : "Отклики по резюме", args: ["apply-vacancies", ...args().opts, ...(state.resume_id ? [`--resume-id=${state.resume_id}`] : [])], mode: "daily", times: ["10:00"], days: [0, 1, 2, 3, 4] }));
           ctx.navigate("schedule", { draft: "1" });
         } })),
-      results.items.map(vacancyCard),
+      h("div", { class: "card rows-vacancies" },
+        h("div", { class: "rows-head rows-line", "aria-hidden": "true" }, h("span", null, "Вакансия"), h("span", { class: "rows-num" }, "Зарплата"), h("span", null)),
+        h("ul", { class: "rows" }, results.items.map(vacancyCard))),
       pager);
   }
 

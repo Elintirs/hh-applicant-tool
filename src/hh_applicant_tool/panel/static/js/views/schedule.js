@@ -60,7 +60,8 @@ export default async function schedule(root, ctx) {
     toast(message);
   }
 
-  function editor() {
+  // inline - правка в строке таблицы, иначе отдельная карточка новой задачи
+  function editor(inline = false) {
     const d = draft;
     const name = input({ value: d.name || "", placeholder: "Например, утренние отклики" });
     const cmd = input({ class: "input mono", value: (d.args || []).map(shellQuote).join(" "), placeholder: "apply-vacancies --max-responses=50" });
@@ -103,19 +104,21 @@ export default async function schedule(root, ctx) {
       try { await save(next, d.id ? "Задача обновлена" : "Задача добавлена"); } catch (err) { error.textContent = err.message; }
     }));
 
+    const body = [
+      h("div", { class: "form-grid" },
+        field({ label: "Название", control: name }),
+        field({ label: "Команда", control: cmd, help: "Аргументы как в терминале, без hh-applicant-tool." })),
+      h("div", { class: "row" }, modeCtl),
+      dailyBox, intervalBox, resumeBox, error];
+    const actions = [button("Отмена", { variant: "ghost", onClick: () => { editing = null; draft = null; render(); } }), saveBtn];
+    if (inline) return h("div", { class: "rows-editor stack", "aria-label": "Правка задачи" }, ...body, h("div", { class: "row" }, ...actions));
     return h("section", { class: "card is-active", "aria-label": d.id ? "Правка задачи" : "Новая задача" },
       h("div", { class: "card-header" }, h("h3", null, d.id ? "Правка задачи" : "Новая задача")),
-      h("div", { class: "card-body stack" },
-        h("div", { class: "form-grid" },
-          field({ label: "Название", control: name }),
-          field({ label: "Команда", control: cmd, help: "Аргументы как в терминале, без hh-applicant-tool." })),
-        h("div", { class: "row" }, modeCtl),
-        dailyBox, intervalBox, resumeBox, error),
-      h("div", { class: "card-footer" }, button("Отмена", { variant: "ghost", onClick: () => { editing = null; draft = null; render(); } }), saveBtn));
+      h("div", { class: "card-body stack" }, ...body),
+      h("div", { class: "card-footer" }, ...actions));
   }
 
   function card(item) {
-    if (editing === item.id) return editor();
     const sw = switchControl("", { checked: item.enabled, onChange: async (on) => {
       try { await save(items.map((i) => (i.id === item.id ? { ...i, enabled: on } : i)), on ? "Задача включена" : "Задача на паузе"); }
       catch (err) { toast(err.message, "error"); sw.input.checked = !on; }
@@ -136,33 +139,42 @@ export default async function schedule(root, ctx) {
       try { await save(items.filter((i) => i.id !== item.id), "Задача удалена"); } catch (err) { toast(err.message, "error"); }
     });
 
-    return h("article", { class: "card" },
-      h("div", { class: "card-body stack-sm" },
-        h("div", { class: "row-between" },
-          h("div", { class: "row grow" }, sw, h("h3", null, item.name), item.busy ? statusBadge("running") : null),
-          h("div", { class: "row" }, runBtn,
-            button("Изменить", { size: "sm", variant: "ghost", onClick: () => { editing = item.id; draft = { ...item }; render(); } }),
-            removeBtn)),
-        h("code", { class: "mono muted" }, ["hh-applicant-tool", ...item.args].map(shellQuote).join(" ")),
-        h("div", { class: "row subtle" },
-          h("span", null, describe(item)),
-          item.enabled && item.next_run_at ? h("span", null, `· следующий ${dateTime(item.next_run_at)} (${relTime(item.next_run_at)})`) : null,
-          !item.enabled ? h("span", null, "· на паузе") : null,
-          item.last_run_at ? h("span", null, "· прошлый ", h("a", { href: `#/jobs?id=${item.last_job_id}` }, relTime(item.last_run_at))) : null,
-          item.last_status ? statusBadge(item.last_status) : null)));
+    const isEditing = editing === item.id;
+    const next = item.enabled && item.next_run_at
+      ? h("div", { class: "subtle", title: dateTime(item.next_run_at) }, `следующий ${relTime(item.next_run_at)}`)
+      : !item.enabled ? h("div", { class: "subtle" }, "на паузе") : null;
+    return h("li", { class: `rows-item${isEditing ? " is-open" : ""}` },
+      h("div", { class: "rows-line" },
+        h("div", { class: "rows-switch" }, sw),
+        h("div", { class: "rows-name" },
+          h("div", { class: "row" }, h("h3", null, item.name), item.busy ? statusBadge("running") : null),
+          h("code", { class: "mono subtle rows-cmd" }, ["hh-applicant-tool", ...item.args].map(shellQuote).join(" "))),
+        h("div", { class: "rows-cell", "data-label": "Когда" }, h("div", null, describe(item)), next),
+        h("div", { class: "rows-cell", "data-label": "Прошлый запуск" },
+          item.last_run_at ? h("div", { class: "row" }, item.last_job_id ? h("a", { href: `#/jobs?id=${encodeURIComponent(item.last_job_id)}` }, relTime(item.last_run_at)) : h("span", null, relTime(item.last_run_at)), item.last_status ? statusBadge(item.last_status) : null)
+            : h("span", { class: "subtle" }, "ещё не было")),
+        h("div", { class: "rows-actions" }, runBtn,
+          button(isEditing ? "Свернуть" : "Изменить", { size: "sm", variant: "ghost", attrs: { "aria-expanded": String(isEditing) }, onClick: () => { if (isEditing) { editing = null; draft = null; } else { editing = item.id; draft = { ...item }; } render(); } }),
+          removeBtn)),
+      isEditing ? editor(true) : null);
   }
 
   function render() {
     const addBtn = button("Добавить задачу", { variant: "primary", iconName: "plus", onClick: () => { editing = "new"; draft = { mode: "daily", times: ["09:00"], days: [], enabled: true }; render(); } });
-    const presets = h("div", { class: "card" },
-      h("div", { class: "card-header" }, h("div", null, h("h3", null, "Быстрый старт"), h("p", { class: "card-hint" }, "Типовые задачи. После добавления их можно поменять."))),
-      h("div", { class: "card-body row" }, PRESETS.map((p) => button(p.name, { size: "sm", iconName: "plus", onClick: () => { editing = "new"; draft = { ...p, enabled: true }; render(); } }))));
+    const presets = h("section", { class: "side-block" },
+      h("h2", null, "Типовые задачи"),
+      h("p", { class: "subtle" }, "Добавятся в форму новой задачи, там их можно поменять."),
+      h("div", { class: "side-actions" }, PRESETS.map((p) => button(p.name, { size: "sm", iconName: "plus", onClick: () => { editing = "new"; draft = { ...p, enabled: true }; render(); } }))));
 
     mount(root,
       pageHeader("Расписание", "Работает, пока запущен контейнер с панелью. Время по часовому поясу сервера. Если прошлый запуск ещё идёт, следующий пропускается.", addBtn),
-      h("div", { class: "stack" },
+      h("div", { class: "stack-lg" },
         editing === "new" ? editor() : null,
-        items.length ? items.map(card) : (editing ? null : h("div", { class: "card" }, empty({ iconName: "clock", title: "Расписание пустое", text: "Добавьте задачу или начните с готовой ниже." }))),
+        items.length
+          ? h("div", { class: "card rows-schedule" },
+              h("div", { class: "rows-head rows-line", "aria-hidden": "true" }, h("span", null), h("span", null, "Задача"), h("span", null, "Когда"), h("span", null, "Прошлый запуск"), h("span", null)),
+              h("ul", { class: "rows" }, items.map(card)))
+          : (editing ? null : h("div", { class: "card" }, empty({ iconName: "clock", title: "Расписание пустое", text: "Добавьте задачу или начните с типовой ниже." }))),
         presets));
   }
 

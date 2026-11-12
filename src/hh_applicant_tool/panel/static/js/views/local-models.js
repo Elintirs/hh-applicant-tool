@@ -53,7 +53,7 @@ export function localModelsCard({ onApplied } = {}) {
       const fill = h("span"); fill.style.width = `${pct ?? (p.done_at ? 100 : 5)}%`;
       return h("div", { class: "stack-sm" },
         h("div", { class: "row-between" }, h("strong", null, p.name),
-          h("span", { class: p.error ? "field-error" : "subtle" }, p.error || (pct != null && !p.done_at ? `${p.status} · ${pct}% из ${gb(p.total)}` : p.status))),
+          h("span", { class: p.error ? "field-error" : "subtle" }, p.error || (pct != null && !p.done_at ? `${p.status}, ${pct}% из ${gb(p.total)}` : p.status))),
         h("div", { class: "bar" }, fill));
     }));
   }
@@ -87,8 +87,8 @@ export function localModelsCard({ onApplied } = {}) {
       return h("li", { class: "list-item" },
         h("div", { class: "list-item-main" },
           h("div", { class: "row" }, h("span", { class: "list-item-title mono" }, m.name), m.loaded ? h("span", { class: "badge badge-success" }, "В памяти") : null),
-          h("div", { class: "list-item-meta" }, [m.params, m.quant, gb(m.size)].filter(Boolean).join(" · "))),
-        h("div", { class: "row" }, mem, target, use, del));
+          h("div", { class: "list-item-meta" }, [m.params, m.quant, gb(m.size)].filter(Boolean).join(", "))),
+        h("div", { class: "model-controls" }, target, use, mem, del));
     }));
   }
 

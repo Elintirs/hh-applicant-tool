@@ -115,7 +115,7 @@ export function control(def, value, onChange, lookups) {
       else onChange(c === defOn ? undefined : (c ? "yes" : "no"));
     } });
     return h("div", { class: "field switch-field" }, sw,
-      h("div", { class: "field-help" }, h("span", { class: "flag" }, def.flag), help ? ` · ${help}` : ""));
+      h("div", { class: "field-help" }, h("span", { class: "flag" }, def.flag), help ? ` ${help}` : ""));
   }
   if (def.kind === "count") {
     const sel = select([["0", "Обычный"], ["1", "Подробный"], ["2", "Отладка"], ["3", "Максимум"]], { value: String(value || 0), onchange: (e) => onChange(e.target.value === "0" ? undefined : e.target.value) });
@@ -252,10 +252,11 @@ export default async function run(root, ctx) {
             h("div", { class: "stack" }, rest.map((g) => h("div", { class: "stack-sm" }, g.title ? h("h4", { class: "muted" }, g.title) : null, mkGrid(g.args, vals))))) : null,
           h("details", { class: "disclosure", open: globalCount > 0 || undefined },
             h("summary", null, chev(), "Общие параметры утилиты", globalCount ? h("span", { class: "badge badge-accent plain" }, String(globalCount)) : null),
-            mkGrid(schema.global, globals())),
-          h("div", { class: "stack-sm" }, h("div", { class: "row-between" }, h("span", { class: "field-label" }, "Команда"),
-            button("Копировать", { size: "sm", variant: "ghost", iconName: "copy", onClick: () => copyText(preview.textContent) })), preview)),
-        h("div", { class: "card-footer" },
+            mkGrid(schema.global, globals()))),
+        // Готовая команда и запуск прилипают к низу: видно, что уйдёт, на любой высоте формы
+        h("div", { class: "card-footer run-bar" },
+          h("div", { class: "run-bar-cmd" }, h("span", { class: "sr-only" }, "Команда"), preview),
+          button("", { size: "sm", variant: "ghost", iconName: "copy", title: "Копировать команду", onClick: () => copyText(preview.textContent) }),
           button("Сбросить", { variant: "ghost", onClick: () => { saved[op.name] = {}; saveValues(saved); renderForm(); } }),
           runBtn)));
     updatePreview();

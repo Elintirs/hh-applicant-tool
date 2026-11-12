@@ -1,6 +1,6 @@
 import { get, post } from "../api.js";
 import {
-  h, mount, button, toast, busy, empty, skeleton, errorState, pageHeader, segmented, relTime, icon,
+  h, mount, button, toast, busy, empty, skeleton, errorState, pageHeader, segmented, subnav, relTime, icon,
 } from "../ui.js";
 import stats from "./stats.js";
 
@@ -75,30 +75,38 @@ async function listTab(host, ctx) {
       load();
     }));
     const rows = items.map((n) => {
-      const li = h("li", { class: "list-item" },
-        h("div", { class: "list-item-main" },
-          h("div", { class: "list-item-title truncate" }, n.vacancy_url ? h("a", { href: n.vacancy_url, target: "_blank", rel: "noopener noreferrer" }, n.vacancy) : n.vacancy),
-          h("div", { class: "list-item-meta truncate" }, [n.employer, n.resume, n.updated_at ? relTime(Date.parse(n.updated_at) / 1000) : null].filter(Boolean).join(" · "))),
-        h("div", { class: "list-item-tags" },
-          n.has_updates ? h("span", { class: "badge badge-accent" }, "Новое") : null,
-          n.viewed ? h("span", { class: "subtle nowrap", title: "Работодатель открыл отклик" }, icon("eye", 14), h("span", { class: "sr-only" }, "Просмотрен")) : null,
-          // hh называет статус без ответа «Отклик», а вкладка фильтра «Без ответа»: одно слово везде
-          h("span", { class: `badge ${KIND[n.state] ? "badge-" + KIND[n.state] : ""}` }, n.state === "response" ? "Без ответа" : n.state_name)),
-        button(n.state === "discard" ? "Убрать" : "Отозвать", { size: "sm", variant: "ghost", iconName: n.state === "discard" ? "trash" : "x", title: n.state === "discard" ? "Убрать отказ из списка" : "Отозвать отклик" }));
-      li.lastChild.addEventListener("click", () => hide(n, li));
+      const act = button(n.state === "discard" ? "Убрать" : "Отозвать", { size: "sm", variant: "ghost", iconName: n.state === "discard" ? "trash" : "x", title: n.state === "discard" ? "Убрать отказ из списка" : "Отозвать отклик" });
+      const li = h("li", { class: "rows-item" },
+        h("div", { class: "rows-line" },
+          h("div", { class: "rows-name" },
+            h("h3", { class: "truncate" }, n.vacancy_url ? h("a", { href: n.vacancy_url, target: "_blank", rel: "noopener noreferrer" }, n.vacancy) : n.vacancy),
+            h("div", { class: "subtle truncate" }, [n.employer, n.resume].filter(Boolean).join(", "))),
+          h("div", { class: "rows-cell row", "data-label": "Статус" },
+            // hh называет статус без ответа «Отклик», а фильтр «Без ответа»: одно слово везде
+            h("span", { class: `badge ${KIND[n.state] ? "badge-" + KIND[n.state] : ""}` }, n.state === "response" ? "Без ответа" : n.state_name),
+            n.has_updates ? h("span", { class: "badge badge-accent" }, "Новое") : null,
+            n.viewed ? h("span", { class: "subtle nowrap", title: "Работодатель открыл отклик" }, icon("eye", 14), h("span", { class: "sr-only" }, "Просмотрен")) : null),
+          h("div", { class: "rows-cell subtle", "data-label": "Обновлён" }, n.updated_at ? relTime(Date.parse(n.updated_at) / 1000) : "–"),
+          h("div", { class: "rows-actions" }, act)));
+      act.addEventListener("click", () => hide(n, li));
       return li;
     });
+    const count = (g) => data.items.filter((n) => inGroup(g, n.state)).length;
     mount(listHost,
-      h("div", { class: "row-between" },
-        segmented(GROUPS, group, (g) => { group = g; render(); }, "Статус"),
-        h("div", { class: "row" }, clearBtn,
-          segmented([["all", "С архивом"], ["active", "Активные"], ["archived", "Архив"]], status, (s) => { status = s; page = 0; load(); }, "Активность"))),
-      items.length ? h("div", { class: "card" }, h("ul", { class: "list" }, rows))
-        : h("div", { class: "card" }, empty({ iconName: "inbox", title: "Здесь пусто", text: "На этой странице нет откликов с таким статусом." })),
-      data.pages > 1 ? h("div", { class: "row-between" },
-        button("Назад", { variant: "ghost", iconName: "arrowLeft", disabled: page === 0, onClick: () => { page--; load(); } }),
-        h("span", { class: "subtle" }, `Страница ${page + 1} из ${data.pages} · всего ${data.found}`),
-        button("Дальше", { variant: "ghost", disabled: page + 1 >= data.pages, onClick: () => { page++; load(); } })) : null);
+      h("div", { class: "subpage" },
+        subnav(GROUPS.map(([v, l]) => [v, [h("span", { class: "grow" }, l), h("span", { class: "subnav-count" }, String(count(v)))]]), group, (g) => { group = g; render(); }, "Статус"),
+        h("div", { class: "stack" },
+          h("div", { class: "row-between" },
+            segmented([["all", "С архивом"], ["active", "Активные"], ["archived", "Архив"]], status, (s) => { status = s; page = 0; load(); }, "Активность"),
+            clearBtn),
+          items.length ? h("div", { class: "card rows-negotiations" },
+              h("div", { class: "rows-head rows-line", "aria-hidden": "true" }, h("span", null, "Вакансия"), h("span", null, "Статус"), h("span", null, "Обновлён"), h("span", null)),
+              h("ul", { class: "rows" }, rows))
+            : h("div", { class: "card" }, empty({ iconName: "inbox", title: "Здесь пусто", text: "На этой странице нет откликов с таким статусом." })),
+          data.pages > 1 ? h("div", { class: "row-between" },
+            button("Назад", { variant: "ghost", iconName: "arrowLeft", disabled: page === 0, onClick: () => { page--; load(); } }),
+            h("span", { class: "subtle" }, `Страница ${page + 1} из ${data.pages}, всего ${data.found}`),
+            button("Дальше", { variant: "ghost", disabled: page + 1 >= data.pages, onClick: () => { page++; load(); } })) : null)));
   }
   mount(host, listHost);
   load();

@@ -1,7 +1,7 @@
 import { get, put, post } from "../api.js";
 import {
   h, mount, button, field, input, textarea, toast, busy, skeleton, errorState, pageHeader, icon,
-  segmented, saveBar, switchControl,
+  segmented, subnav, saveBar, switchControl,
 } from "../ui.js";
 import letters from "./letters.js";
 
@@ -116,8 +116,8 @@ export default async function texts(root, ctx) {
   };
   mount(root,
     pageHeader("Тексты", "Всё, что утилита пишет от вашего имени: письма к откликам, промпты для модели, ответы в чатах и письма на почту."),
-    h("div", { class: "stack" },
-      h("div", null, segmented(TABS, tab, (t) => { tab = t; history.replaceState(null, "", `#/texts?tab=${t}`); show(); }, "Раздел")),
+    h("div", { class: "subpage" },
+      subnav(TABS, tab, (t) => { tab = t; history.replaceState(null, "", `#/texts?tab=${t}`); show(); }, "Раздел"),
       host));
   await show();
   return () => { if (cleanup) cleanup(); if (host._cleanup) host._cleanup(); };

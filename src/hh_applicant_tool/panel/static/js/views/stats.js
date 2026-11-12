@@ -2,6 +2,7 @@ import { get, post } from "../api.js";
 import { h, mount, button, busy, toast, empty, skeleton, errorState, pageHeader, relTime, callout, plural } from "../ui.js";
 
 const SVG = "http://www.w3.org/2000/svg";
+const stateLabel = (id, name) => (id === "response" ? "Без ответа" : name); // как в списке откликов
 function s(tag, attrs = {}, ...children) {
   const el = document.createElementNS(SVG, tag);
   for (const [k, v] of Object.entries(attrs)) if (v !== undefined) el.setAttribute(k, v);
@@ -48,7 +49,9 @@ function stackedBars(days) {
     svg.appendChild(g);
     if (i % 5 === 0 || i === days.length - 1) {
       const label = new Date(d.date).toLocaleDateString("ru-RU", { day: "numeric", month: "short" }).replace(".", "");
-      svg.appendChild(s("text", { class: "tick", x: x + bw * 0.35, y: H - 6, "text-anchor": "middle" }, label));
+      // Последнюю подпись прижимаем к правому краю, иначе её обрезает рамка графика
+      const last = i === days.length - 1;
+      svg.appendChild(s("text", { class: "tick", x: last ? W - pad.r : x + bw * 0.35, y: H - 6, "text-anchor": last ? "end" : "middle" }, label));
     }
   });
   return svg;
@@ -108,7 +111,7 @@ export default async function stats(root, ctx, opts = {}) {
           h("section", { class: "card" },
             h("div", { class: "card-header" }, h("h3", null, "По статусам")),
             h("table", { class: "table" },
-              h("tbody", null, data.by_state.map((x) => h("tr", null, h("td", null, x.name), h("td", { class: "num" }, x.count.toLocaleString("ru-RU")), h("td", { class: "num subtle" }, pct(x.count, data.total))))))),
+              h("tbody", null, data.by_state.map((x) => h("tr", null, h("td", null, stateLabel(x.id, x.name)), h("td", { class: "num" }, x.count.toLocaleString("ru-RU")), h("td", { class: "num subtle" }, pct(x.count, data.total))))))),
           h("section", { class: "card" },
             h("div", { class: "card-header" }, h("h3", null, "По резюме")),
             h("div", { class: "card-body stack" }, data.by_resume.length ? data.by_resume.map((r) => {
@@ -120,9 +123,9 @@ export default async function stats(root, ctx, opts = {}) {
           h("ul", { class: "list" }, data.recent.map((r) => h("li", { class: "list-item" },
             h("div", { class: "list-item-main" },
               h("div", { class: "list-item-title truncate" }, r.url ? h("a", { href: r.url, target: "_blank", rel: "noopener noreferrer" }, r.vacancy) : r.vacancy),
-              h("div", { class: "list-item-meta truncate" }, [r.employer, r.updated_at ? relTime(Date.parse(r.updated_at) / 1000) : null].filter(Boolean).join(" · "))),
+              h("div", { class: "list-item-meta truncate" }, [r.employer, r.updated_at ? relTime(Date.parse(r.updated_at) / 1000) : null].filter(Boolean).join(", "))),
             r.has_updates ? h("span", { class: "badge badge-accent" }, "Новое") : null,
-            h("span", { class: `badge ${seriesOf(r.state) === "invitation" ? "badge-success" : seriesOf(r.state) === "discard" ? "badge-danger" : ""}` }, r.state_name))))),
+            h("span", { class: `badge ${seriesOf(r.state) === "invitation" ? "badge-success" : seriesOf(r.state) === "discard" ? "badge-danger" : ""}` }, stateLabel(r.state, r.state_name)))))),
       ));
   }
   render();

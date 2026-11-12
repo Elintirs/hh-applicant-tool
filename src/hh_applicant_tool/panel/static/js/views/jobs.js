@@ -48,7 +48,7 @@ export default async function jobs(root, ctx) {
       h("span", { class: "truncate list-item-title" }, j.title || j.args[0]),
       statusBadge(j.status),
       h("span", { class: "cmd truncate" }, (j.command || j.args.join(" ")).replace(/^hh-applicant-tool /, "")),
-      h("span", { class: "subtle" }, `${sourceLabel(j)} · ${relTime(j.created_at)}${j.queue_position ? ` · место в очереди: ${j.queue_position}` : ""}`),
+      h("span", { class: "subtle" }, `${sourceLabel(j)}, ${relTime(j.created_at)}${j.queue_position ? `, место в очереди: ${j.queue_position}` : ""}`),
     )));
   }
 
@@ -136,7 +136,7 @@ export default async function jobs(root, ctx) {
       if (j.started_at) parts.push(`начата ${dateTime(j.started_at)}`);
       if (j.started_at) parts.push(`длительность ${duration(j.started_at, j.finished_at)}`);
       if (j.exit_code !== null && j.exit_code !== undefined) parts.push(`код выхода ${j.exit_code}`);
-      meta.textContent = parts.join(" · ") || `создана ${dateTime(j.created_at)}`;
+      meta.textContent = parts.join(", ") || `создана ${dateTime(j.created_at)}`;
       const row = list.find((x) => x.id === j.id);
       if (row && row.status !== j.status) { Object.assign(row, j); renderList(); }
     };
@@ -179,21 +179,25 @@ export default async function jobs(root, ctx) {
   }
 
   if (!(await loadList())) return;
-  mount(root,
+  // Пока истории нет, вместо двух колонок одна заглушка
+  const layout = () => mount(root,
     pageHeader("Задачи", "История запусков и живой вывод. Если команда ждёт ввода (код из СМС, капча), ответьте в поле под логом.",
       button("Новый запуск", { variant: "primary", iconName: "play", onClick: () => ctx.navigate("run") })),
-    h("div", { class: "jobs-layout" }, listEl, detail));
+    list.length ? h("div", { class: "jobs-layout" }, listEl, detail) : listEl);
+  layout();
   if (!selectedId && list.length) selectedId = list[0].id;
   renderList();
-  renderDetail();
+  if (list.length) renderDetail();
 
   // Обновляем список, чтобы видеть очередь и задачи из расписания
   pollTimer = setInterval(async () => {
     try {
       const fresh = (await get("jobs")).jobs;
       const changed = JSON.stringify(fresh.map((j) => [j.id, j.status, j.queue_position])) !== JSON.stringify(list.map((j) => [j.id, j.status, j.queue_position]));
+      const wasEmpty = !list.length;
       list = fresh;
-      if (changed) renderList();
+      if (wasEmpty && list.length) { layout(); selectedId = list[0].id; renderList(); renderDetail(); }
+      else if (changed) renderList();
     } catch { /* ничего */ }
   }, 4000);
 

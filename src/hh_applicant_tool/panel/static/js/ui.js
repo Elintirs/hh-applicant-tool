@@ -156,6 +156,22 @@ export function segmented(options, value, onChange, label) {
   return group;
 }
 
+// Подменю раздела: вертикальный список рядом с содержимым. На телефоне
+// сворачивается в строку, которая листается вбок
+export function subnav(options, value, onChange, label) {
+  const nav = h("nav", { class: "subnav", "aria-label": label });
+  const render = (v) => {
+    for (const b of nav.children) {
+      if (b.dataset.value === v) b.setAttribute("aria-current", "true"); else b.removeAttribute("aria-current");
+    }
+  };
+  for (const [v, l] of options) {
+    nav.appendChild(h("button", { type: "button", class: "subnav-item", dataset: { value: v }, onclick: () => { render(v); onChange(v); } }, l));
+  }
+  render(value);
+  return nav;
+}
+
 // ---- Обратная связь ----
 export function toast(message, kind = "success", timeout = 4000) {
   const root = document.getElementById("toasts");

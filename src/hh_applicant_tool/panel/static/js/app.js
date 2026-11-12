@@ -84,7 +84,7 @@ function renderAccount() {
   const trigger = h("button", { type: "button", class: "account-trigger", "aria-haspopup": "true", "aria-expanded": "false" },
     h("span", { class: `account-avatar account-${status}`, "aria-hidden": "true" }, icon("user", 16)),
     h("span", { class: "account-text" }, h("span", { class: "account-name truncate" }, name),
-      h("span", { class: "account-sub truncate" }, [active && profiles.items.length > 1 ? `Профиль: ${active.title}` : null, sub].filter(Boolean).join(" · "))),
+      h("span", { class: "account-sub truncate" }, [active && profiles.items.length > 1 ? `Профиль: ${active.title}` : null, sub].filter(Boolean).join(", "))),
     icon("down", 14));
   const menu = h("div", { class: "account-menu", role: "menu", hidden: true });
   const close = () => { menu.hidden = true; trigger.setAttribute("aria-expanded", "false"); };
@@ -221,9 +221,11 @@ async function refreshModel() {
     const r = await get("ollama/ps");
     const gb = (b) => (b / 2 ** 30).toFixed(1).replace(".", ",");
     el.hidden = false;
-    el.textContent = !r.ok ? "🧠 Ollama недоступна"
-      : r.models.length ? r.models.map((m) => `🧠 ${m.name} · ${gb(m.size_vram || 0)} ГБ`).join("\n")
-      : "🧠 Модель не загружена";
+    const text = !r.ok ? "Ollama недоступна"
+      : r.models.length ? r.models.map((m) => `${m.name}, ${gb(m.size_vram || 0)} ГБ`).join("\n")
+      : "Модель не загружена";
+    mount(el, icon("cpu", 16), h("span", null, text));
+    el.classList.toggle("is-live", Boolean(r.ok && r.models.length));
     el.title = r.ok ? "Модели в памяти Ollama" : r.error;
   } catch { el.hidden = true; }
 }

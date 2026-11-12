@@ -30,12 +30,15 @@ const part = (label, text) => h("div", { class: "ai-part" }, h("div", { class: "
 // pick достаёт этот же вызов из полной записи журнала
 function aiCall(title, call, line, pick) {
   if (!call) return null;
-  const head = `${title} · ${call.model || "?"} · ${call.sec ?? "?"} с`;
+  const sec = call.sec != null ? `${String(call.sec).replace(".", ",")} с` : "";
   const promptBox = h("div", { class: "stack-sm" },
     call.system ? part("Системный промпт", call.system) : null,
     call.prompt ? part("Вход", call.prompt) : null);
   const el = h("details", { class: "ai-call" },
-    h("summary", null, h("span", null, head), h("span", { class: "subtle ai-brief" }, (call.answer || "").replace(/\s+/g, " ").slice(0, 90))),
+    h("summary", null,
+      h("span", null, title),
+      h("span", { class: "subtle" }, [call.model || "?", sec].filter(Boolean).join(", ")),
+      h("span", { class: "subtle ai-brief" }, (call.answer || "").replace(/\s+/g, " ").slice(0, 90))),
     promptBox,
     part("Ответ", call.answer || ""));
   if (call.has_prompt && line != null && pick) {
@@ -52,26 +55,47 @@ function aiCall(title, call, line, pick) {
   return el;
 }
 
-function entry(r) {
+// Время записи: сегодня только часы, иначе и дата
+function stamp(ts) {
+  if (!ts) return "";
+  const [d, t] = ts.split("T");
+  const today = new Date().toISOString().slice(0, 10);
+  const hm = (t || "").slice(0, 5);
+  return d === today ? hm : `${d.slice(8, 10)}.${d.slice(5, 7)} ${hm}`;
+}
+
+// Что решил AI, одной строкой: причина фильтра, ответ в чат или ошибка
+function reason(r) {
+  if (r.error) return r.error;
+  if (r.kind === "chat") return r.reply ? `Ответ: ${r.reply}` : r.message ? `Работодатель: ${r.message}` : "";
+  return r.ai_filter?.answer ? `Фильтр: ${r.ai_filter.answer}` : "";
+}
+
+// Строка ленты. compact - для обзора: без раскрывающихся вызовов модели
+export function ledgerRow(r, { compact = false } = {}) {
   const [label, kind] = RESULTS[r.result] || [r.result, "info"];
   const f = r.ai_filter;
   const L = r._line;
-  const tests = (r.test || []).map((t, i) => aiCall(`Тест ${i + 1}`, t.model ? t : { ...t, model: "без AI", sec: 0 }, L, (x) => (x.test || [])[i]));
-  return h("article", { class: "card" },
-    h("div", { class: "card-body stack-sm" },
-      h("div", { class: "row-between" },
-        h("div", { class: "grow" },
-          h("a", { href: r.url, target: "_blank", rel: "noopener" }, h("strong", null, r.vacancy || r.vacancy_id)),
-          h("div", { class: "subtle" }, [r.employer, r.vacancy_experience, r.ts && r.ts.replace("T", " ")].filter(Boolean).join(" · "))),
-        h("span", { class: `badge badge-${kind}` }, label)),
-      f ? aiCall(`Фильтр: ${f.suitable ? "подходит" : "не подходит"}`, f, L, (x) => x.ai_filter) : null,
-      r.letter_ai ? aiCall("Письмо", r.letter_ai, L, (x) => x.letter_ai) : r.letter ? h("pre", { class: "mono ai-text" }, r.letter) : null,
-      ...tests,
-      r.kind === "chat" && r.message ? h("div", { class: "subtle" }, "Работодатель: ", r.message.replace(/\s+/g, " ").slice(0, 300)) : null,
-      r.chat_ai ? aiCall("Ответ в чат", r.chat_ai, L, (x) => x.chat_ai) : r.reply ? h("pre", { class: "mono ai-text" }, r.reply) : null,
-      r.form ? h("div", { class: "stack-sm" }, r.form.map((f) => h("div", { class: "ai-part" }, h("div", { class: "field-label" }, f.q), h("div", null, Array.isArray(f.answer) ? f.answer.join(", ") : (f.answer || "—"))))) : null,
-      r.error ? h("div", { class: "field-error" }, r.error) : null));
+  const why = reason(r).replace(/\s+/g, " ");
+  const calls = compact ? [] : [
+    f ? aiCall(`Фильтр: ${f.suitable ? "подходит" : "не подходит"}`, f, L, (x) => x.ai_filter) : null,
+    r.letter_ai ? aiCall("Письмо", r.letter_ai, L, (x) => x.letter_ai) : r.letter ? h("pre", { class: "mono ai-text" }, r.letter) : null,
+    ...(r.test || []).map((t, i) => aiCall(`Тест ${i + 1}`, t.model ? t : { ...t, model: "без AI", sec: 0 }, L, (x) => (x.test || [])[i])),
+    r.chat_ai ? aiCall("Ответ в чат", r.chat_ai, L, (x) => x.chat_ai) : null,
+    r.form ? h("div", { class: "stack-sm" }, r.form.map((q) => h("div", { class: "ai-part" }, h("div", { class: "field-label" }, q.q), h("div", null, Array.isArray(q.answer) ? q.answer.join(", ") : (q.answer || "нет ответа"))))) : null,
+  ].filter(Boolean);
+  return h("li", { class: "ledger-row" },
+    h("time", { class: "ledger-time", datetime: r.ts || "" }, stamp(r.ts)),
+    h("div", { class: "ledger-main" },
+      h("div", { class: "ledger-title" }, h("a", { href: r.url, target: "_blank", rel: "noopener" }, r.vacancy || r.vacancy_id || "Чат")),
+      h("div", { class: "ledger-meta" }, [r.employer, r.vacancy_experience].filter(Boolean).join(", ")),
+      // В полной ленте причину фильтра видно в его строке ниже, не повторяем
+      why && (compact || r.error || !f) ? h("div", { class: r.error ? "field-error" : "ledger-reason" }, compact ? why.slice(0, 140) : why.slice(0, 400)) : null),
+    h("span", { class: `badge badge-${kind}` }, label),
+    calls.length ? h("div", { class: "ledger-calls" }, ...calls) : null);
 }
+
+export { RESULTS };
 
 export default async function journal(root) {
   const lead = "Что модель получила и что ответила по вакансиям и чатам. Пишут apply-vacancies и reply-chats, обновляется сам.";
@@ -79,7 +103,7 @@ export default async function journal(root) {
   let timer, items = [], path = "", version = "";
   const f = { kind: "all", result: "", q: "" };
   const open = new Set();
-  const listEl = h("div", { class: "stack" });
+  const listEl = h("ol", { class: "ledger" });
   const countEl = h("span", { class: "subtle" });
   const resultSel = select([], { "aria-label": "Результат", onchange: (e) => { f.result = e.target.value; render(); } });
   const searchEl = input({ type: "search", placeholder: "Вакансия или компания", "aria-label": "Поиск", oninput: (e) => { f.q = e.target.value.trim().toLowerCase(); render(); } });
@@ -101,8 +125,8 @@ export default async function journal(root) {
     // Перерисовка не должна схлопывать раскрытые блоки
     listEl.querySelectorAll("details[open] summary").forEach((s) => open.add(s.textContent));
     mount(listEl, ...(shown.length
-      ? shown.map(entry)
-      : [h("div", { class: "card" }, items.length
+      ? shown.map((r) => ledgerRow(r))
+      : [h("li", null, items.length
         ? empty({ iconName: "search", title: "Ничего не найдено", text: "Поменяйте фильтры." })
         : empty({ iconName: "sparkle", title: "Журнал пока пуст", text: "Записи появятся после запуска apply-vacancies или reply-chats с AI." }))]));
     listEl.querySelectorAll("details summary").forEach((s) => { if (open.has(s.textContent)) s.parentElement.open = true; });

@@ -1,7 +1,7 @@
 import { get, post, put, del } from "../api.js";
 import {
   h, mount, button, field, input, toast, busy, skeleton, errorState, pageHeader, icon,
-  segmented, callout, relTime, confirmDialog, switchControl, copyText,
+  segmented, subnav, callout, relTime, confirmDialog, switchControl, copyText,
 } from "../ui.js";
 
 async function profilesTab(host, ctx) {
@@ -49,7 +49,7 @@ async function logTab(host) {
       const data = await get(`log${level ? `?level=${level}` : ""}`);
       const atBottom = pre.scrollHeight - pre.scrollTop - pre.clientHeight < 24;
       pre.textContent = data.lines.join("\n");
-      meta.textContent = `${data.path} · ${(data.size / 1024).toFixed(0)} КБ`;
+      meta.textContent = `${data.path}, ${(data.size / 1024).toFixed(0)} КБ`;
       if (follow && atBottom) pre.scrollTop = pre.scrollHeight;
     } catch (err) { pre.textContent = err.message; }
   };
@@ -154,7 +154,7 @@ async function telegramTab(host) {
     try {
       const { chats } = await post("telegram/detect", { token: token.value.trim() || undefined });
       if (!chats.length) { toast("Бот пока не получал сообщений. Напишите ему что-нибудь и нажмите ещё раз", "info"); return; }
-      mount(found, ...chats.map((c) => h("button", { type: "button", class: "chip", onclick: () => { chatId.value = c.id; } }, `${c.name || "Чат"} · ${c.id}`)));
+      mount(found, ...chats.map((c) => h("button", { type: "button", class: "chip", onclick: () => { chatId.value = c.id; } }, `${c.name || "Чат"} (${c.id})`)));
       if (chats.length === 1) chatId.value = chats[0].id;
     } catch (err) { toast(err.message, "error"); }
   }));
@@ -196,8 +196,8 @@ export default async function system(root, ctx) {
   };
   mount(root,
     pageHeader("Система", "Доступ с других устройств, уведомления в Telegram, профили аккаунтов, лог утилиты и обновления."),
-    h("div", { class: "stack" },
-      h("div", null, segmented([["connection", "Подключение"], ["notify", "Уведомления"], ["profiles", "Профили"], ["log", "Лог"], ["updates", "Обновления"]], tab, (t) => { tab = t; history.replaceState(null, "", `#/system?tab=${t}`); show(); }, "Раздел")),
+    h("div", { class: "subpage" },
+      subnav([["connection", "Подключение"], ["notify", "Уведомления"], ["profiles", "Профили"], ["log", "Лог"], ["updates", "Обновления"]], tab, (t) => { tab = t; history.replaceState(null, "", `#/system?tab=${t}`); show(); }, "Раздел"),
       host));
   await show();
   return () => { if (cleanup) cleanup(); };

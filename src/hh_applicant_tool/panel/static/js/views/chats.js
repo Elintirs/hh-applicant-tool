@@ -51,7 +51,7 @@ export default async function chats(root, ctx) {
   };
   const searchEl = input({ type: "search", placeholder: "Поиск: компания, вакансия, текст", "aria-label": "Поиск по чатам", oninput: (e) => { view.q = e.target.value.trim().toLowerCase(); renderList(); } });
   const stateEl = select(STATE_FILTERS, { "aria-label": "Статус чата", onchange: (e) => { view.state = e.target.value; renderList(); } });
-  const filtersEl = h("div", { class: "chat-filters" }, searchEl, stateEl);
+  const filtersEl = h("div", { class: "chat-filters" });
   const pane = h("section", { class: "card chat-pane", "aria-live": "off" });
 
   mount(root, pageHeader("Чаты", "Переписка с работодателями. AI подготовит черновик ответа, отправляете вы."), skeleton(6));
@@ -215,7 +215,7 @@ export default async function chats(root, ctx) {
     mount(pane,
       h("div", { class: "card-header" },
         h("div", { class: "grow" }, h("h2", { class: "card-title truncate" }, c.title || "Чат"),
-          h("p", { class: "card-hint truncate" }, c.vacancy_url ? h("a", { href: c.vacancy_url, target: "_blank", rel: "noopener noreferrer" }, c.vacancy || "Вакансия") : (c.vacancy || ""), c.subtitle ? ` · ${c.subtitle}` : "")),
+          h("p", { class: "card-hint truncate" }, c.vacancy_url ? h("a", { href: c.vacancy_url, target: "_blank", rel: "noopener noreferrer" }, c.vacancy || "Вакансия") : (c.vacancy || ""), c.subtitle ? `, ${c.subtitle}` : "")),
         leave),
       thread,
       h("div", { class: "chat-composer" },
@@ -250,9 +250,9 @@ export default async function chats(root, ctx) {
 
   const filterCtl = segmented([["all", "Все"], ["unread", "Непрочитанные"]], filter, async (f) => { filter = f; if (readCache()) renderList(); else mount(listEl, skeleton(5)); try { await load(); } catch (err) { toast(err.message, "error"); } renderList(); }, "Фильтр чатов");
   mount(root,
-    pageHeader("Чаты", "AI готовит черновик, отправляете вы. Автоответчик ждёт 15 минут после сообщения работодателя, так что успеете ответить сами.", filterCtl,
+    pageHeader("Чаты", "AI готовит черновик, отправляете вы. Автоответчик ждёт 15 минут после сообщения работодателя, так что успеете ответить сами.",
       button("", { variant: "ghost", iconName: "refresh", title: "Обновить", onClick: (e) => busy(e.currentTarget, refresh) })),
-    h("div", { class: "chats-layout" }, h("div", { class: "chat-side" }, filtersEl, listEl), pane));
+    h("div", { class: "chats-layout" }, h("div", { class: "chat-side" }, mount(filtersEl, filterCtl, searchEl, stateEl), listEl), pane));
   renderList();
   if (selected) open(selected); else mount(pane, placeholder());
   if (cached) refresh();

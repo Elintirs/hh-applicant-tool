@@ -101,7 +101,7 @@ export default async function models(root) {
         const r = await post("models/test", { key: task.key, values });
         const ok = !task.vision || r.text.replace(/\s/g, "").toUpperCase().includes("7KQ4M");
         mount(result, callout(ok ? "success" : "warning",
-          h("p", null, h("strong", null, task.vision ? (ok ? "Капча распознана верно" : "Капча распознана с ошибкой") : "Модель отвечает"), ` · ${r.seconds} с${r.model ? ` · ${r.model}` : ""}`),
+          h("p", null, h("strong", null, task.vision ? (ok ? "Капча распознана верно" : "Капча распознана с ошибкой") : "Модель отвечает"), `: ${r.seconds} с${r.model ? `, ${r.model}` : ""}`),
           h("div", { class: "result" }, r.text || "(пустой ответ)"),
           task.vision && !ok ? h("p", null, "Правильный ответ 7KQ4M. Возьмите модель с поддержкой изображений (vision).") : null));
       } catch (err) {
@@ -155,9 +155,10 @@ export default async function models(root) {
     const others = data.tasks.filter((t) => t.key !== "default");
     mount(root,
       pageHeader("Модели", "Основная модель работает везде. Для отдельных задач можно подключить другую, например дешёвую для фильтра и умную для писем."),
-      h("div", { class: "stack" },
-        !data.configured ? callout("info", h("p", null, "AI ещё не настроен. Скачайте локальную модель ниже или укажите адрес API основной модели, и утилита начнёт писать письма, фильтровать вакансии и отвечать в чатах.")) : null,
-        local,
+      !data.configured ? callout("info", h("p", null, "AI ещё не настроен. Скачайте локальную модель справа или укажите адрес API основной модели, и утилита начнёт писать письма, фильтровать вакансии и отвечать в чатах.")) : null,
+      // Слева: кто какую работу делает. Справа: что стоит на этом компьютере
+      h("div", { class: "models-layout" },
+        h("div", { class: "stack" },
         h("section", { class: "card", "aria-labelledby": "main-model" },
           h("div", { class: "card-header" }, h("div", null, h("h3", { id: "main-model" }, "Основная модель"), h("p", { class: "card-hint" }, mainTask.hint))),
           h("div", { class: "card-body" }, form(mainTask))),
@@ -165,6 +166,7 @@ export default async function models(root) {
           h("div", { class: "card-header" }, h("div", null, h("h3", { id: "task-models" }, "Модели для задач"), h("p", { class: "card-hint" }, "Пустое поле берёт значение основной модели."))),
           h("div", null, others.map(taskRow))),
         data.has_comments ? h("p", { class: "subtle" }, "При сохранении комментарии в config.toml пропадут, копия останется в config.toml.bak.") : null),
+        h("aside", { class: "models-side", "aria-label": "Локальные модели" }, local)),
       bar.el);
     bar.set(bar.dirty);
   }

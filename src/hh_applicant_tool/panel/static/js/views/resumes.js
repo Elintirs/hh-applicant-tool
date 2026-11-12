@@ -52,39 +52,35 @@ export default async function resumes(root, ctx) {
   let openId = ctx.params.get("id");
   let bar = null;
 
-  function stats(r) {
-    const cell = (label, value) => h("div", null, h("div", { class: "kpi-label" }, label), h("div", { class: "kpi-value kpi-sm" }, value ?? "–"));
-    return h("div", { class: "grid-3 resume-stats" },
-      cell("Просмотры", r.total_views), cell("Новые просмотры", r.new_views),
-      r.similar != null ? h("div", null, h("div", { class: "kpi-label" }, "Похожие вакансии"),
-        h("a", { class: "kpi-value kpi-sm", href: `#/vacancies`, title: "Подобрать вакансии" }, r.similar.toLocaleString("ru-RU"))) : cell("Видимость", null));
-  }
-
-  function card(r) {
+  // Одна строка таблицы на резюме: цифры в колонках, редактор раскрывается под строкой
+  function row(r) {
     const publishBtn = button(r.can_publish_or_update ? "Поднять в поиске" : "Поднять", { size: "sm", variant: r.can_publish_or_update ? "primary" : "", iconName: "up", disabled: !r.can_publish_or_update });
     publishBtn.addEventListener("click", () => busy(publishBtn, async () => {
       try { await post(`resumes/${r.id}/publish`); toast("Резюме поднято"); items = (await get("resumes")).items; render(); }
       catch (err) { toast(err.message, "error"); }
     }));
     const isOpen = openId === r.id;
-    return h("article", { class: `card${isOpen ? " is-active" : ""}` },
-      h("div", { class: "card-body stack" },
-        h("div", { class: "row-between" },
-          h("div", { class: "grow" },
-            h("div", { class: "row" }, h("h3", null, r.title || "Без названия"),
-              h("span", { class: `badge ${r.status_id === "published" ? "badge-success" : ""}` }, r.status || "")),
-            h("p", { class: "subtle" }, [r.area, r.updated_at ? `обновлено ${relTime(Date.parse(r.updated_at) / 1000)}` : null, r.access].filter(Boolean).join(" · "))),
-          h("div", { class: "row" },
-            r.url ? h("a", { class: "btn btn-sm btn-ghost", href: r.url, target: "_blank", rel: "noopener noreferrer" }, icon("external", 16), "На hh.ru") : null,
-            button(isOpen ? "Свернуть" : "Изменить", { size: "sm", attrs: { "aria-expanded": String(isOpen) }, onClick: () => { openId = isOpen ? null : r.id; render(); } }),
-            publishBtn)),
-        !r.can_publish_or_update && r.next_publish_at ? h("p", { class: "subtle" }, `Поднять можно ${relTime(Date.parse(r.next_publish_at) / 1000)}, ${dateTime(Date.parse(r.next_publish_at) / 1000)}`) : null,
-        stats(r)),
+    const when = r.can_publish_or_update ? h("span", { class: "badge badge-success" }, "Можно сейчас")
+      : r.next_publish_at ? h("span", { title: dateTime(Date.parse(r.next_publish_at) / 1000) }, relTime(Date.parse(r.next_publish_at) / 1000))
+      : h("span", { class: "subtle" }, "нет данных");
+    return h("li", { class: `rows-item${isOpen ? " is-open" : ""}` },
+      h("div", { class: "rows-line" },
+        h("div", { class: "rows-name" },
+          h("div", { class: "row" }, h("h3", null, r.title || "Без названия"),
+            h("span", { class: `badge ${r.status_id === "published" ? "badge-success" : ""}` }, r.status || "")),
+          h("p", { class: "subtle" }, [r.area, r.updated_at ? `обновлено ${relTime(Date.parse(r.updated_at) / 1000)}` : null, r.access].filter(Boolean).join(", "))),
+        h("div", { class: "rows-num", "data-label": "Просмотры" }, r.total_views ?? "–"),
+        h("div", { class: `rows-num${r.new_views ? " is-attention" : ""}`, "data-label": "Новые" }, r.new_views ?? "–"),
+        h("div", { class: "rows-cell", "data-label": "Поднять" }, when),
+        h("div", { class: "rows-actions" },
+          r.url ? h("a", { class: "btn btn-sm btn-ghost btn-icon", href: r.url, target: "_blank", rel: "noopener noreferrer", title: "Открыть на hh.ru", "aria-label": "Открыть на hh.ru" }, icon("external", 16)) : null,
+          button(isOpen ? "Свернуть" : "Изменить", { size: "sm", attrs: { "aria-expanded": String(isOpen) }, onClick: () => { openId = isOpen ? null : r.id; render(); } }),
+          publishBtn)),
       isOpen ? editor(r) : null);
   }
 
   function editor(r) {
-    const host = h("div", { class: "card-body stack resume-editor" }, skeleton(5));
+    const host = h("div", { class: "stack rows-editor" }, skeleton(5));
     (async () => {
       let data;
       try { data = await get(`resumes/${r.id}`); } catch (err) { mount(host, errorState(err)); return; }
@@ -162,7 +158,9 @@ export default async function resumes(root, ctx) {
     mount(root,
       pageHeader("Резюме", "Поднять в поиске, поправить главное и посмотреть, кто открывал.", publishAll,
         button("Поднимать по расписанию", { variant: publishAll ? "" : "primary", iconName: "clock", onClick: () => ctx.navigate("schedule") })),
-      items.length ? h("div", { class: "stack" }, items.map(card))
+      items.length ? h("div", { class: "card rows-resumes" },
+          h("div", { class: "rows-head rows-line", "aria-hidden": "true" }, h("span", null, "Резюме"), h("span", { class: "rows-num" }, "Просмотры"), h("span", { class: "rows-num" }, "Новые"), h("span", null, "Поднять"), h("span", null)),
+          h("ul", { class: "rows" }, items.map(row)))
         : h("div", { class: "card" }, empty({ iconName: "file", title: "Резюме нет", text: "Создайте резюме на hh.ru, и оно появится здесь." })));
   }
 

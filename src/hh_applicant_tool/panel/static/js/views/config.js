@@ -1,13 +1,12 @@
 import { get, put, post } from "../api.js";
-import { h, mount, button, textarea, toast, skeleton, errorState, pageHeader, callout, confirmDialog, saveBar } from "../ui.js";
+import { h, mount, button, textarea, toast, skeleton, errorState, pageHeader, confirmDialog, saveBar, icon } from "../ui.js";
 
 export default async function config(root) {
   mount(root, pageHeader("Конфиг", "config.toml целиком."), skeleton(8));
   let data;
   try { data = await get("config"); } catch (err) { mount(root, errorState(err, () => config(root))); return; }
 
-  const ta = textarea({ class: "textarea code", rows: 28, value: data.text, "aria-label": "Содержимое config.toml" });
-  ta.style.minHeight = "60vh";
+  const ta = textarea({ class: "textarea code editor", rows: 28, value: data.text, "aria-label": "Содержимое config.toml" });
   const status = h("div", { class: "row subtle", "aria-live": "polite" });
   const restoreBtn = button("Откатить к копии", { variant: "ghost", iconName: "undo" });
   restoreBtn.hidden = !data.has_backup;
@@ -60,12 +59,13 @@ export default async function config(root) {
 
   mount(root,
     pageHeader("Конфиг", "config.toml целиком: все ключи, включая те, для которых нет отдельного экрана.", restoreBtn),
-    h("div", { class: "stack" },
-      callout("warning", h("p", null, "Здесь видны ключи API. Не показывайте экран посторонним.")),
-      h("section", { class: "card" },
-        h("div", { class: "card-header" }, h("code", { class: "mono truncate" }, data.path), status),
-        h("div", { class: "card-body" }, ta)),
-      h("p", { class: "subtle" }, "Cmd/Ctrl+S сохраняет. Tab вставляет отступ; чтобы перейти к следующему элементу, нажмите Esc, затем Tab.")),
+    h("section", { class: "card editor-card" },
+      h("div", { class: "editor-bar" },
+        h("span", { class: "mono subtle truncate grow", title: data.path }, data.path), status),
+      ta,
+      h("div", { class: "editor-bar editor-foot" },
+        h("span", { class: "row subtle" }, icon("alert", 16), "Здесь видны ключи API. Не показывайте экран посторонним."),
+        h("span", { class: "subtle" }, "Cmd/Ctrl+S сохраняет. Tab вставляет отступ; Esc, затем Tab уводит фокус дальше."))),
     bar.el);
   validate();
   return () => bar.destroy();
