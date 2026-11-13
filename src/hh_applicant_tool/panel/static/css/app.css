@@ -584,7 +584,7 @@ details.disclosure > summary:hover { color: var(--color-text); }
 .list-flush .list-item { padding-left: 0; padding-right: 0; flex-wrap: wrap; }
 
 /* Редактор анкеты Google Forms в чате */
-.form-editor { gap: var(--space-4); }
+.form-editor { gap: var(--space-4); flex: 1; min-height: 0; overflow: auto; }
 .form-q { display: flex; flex-direction: column; gap: var(--space-1); }
 .form-q .req { color: var(--color-danger); }
 .form-boxes { display: flex; flex-direction: column; gap: var(--space-1); }
