@@ -110,7 +110,8 @@ DEFAULT_COVER_LETTER_SYSTEM_PROMPT = """\
 
 DEFAULT_AI_FILTER_SYSTEM_PROMPT = (
     "Ты определяешь, подходит ли вакансия кандидату. "
-    "Отвечай одним словом: «да» или «нет»."
+    "Отвечай одним словом: «да» или «нет». "
+    "Навыки из строки «Также применял на проектах» считай навыками кандидата."
 )
 
 DEFAULT_TEST_SYSTEM_PROMPT = """\
@@ -136,6 +137,7 @@ DEFAULT_COVER_LETTER_PROMPT = (
 DEFAULT_AI_FILTER_PROMPT = """\
 Название резюме: %(resume_title)s
 Навыки, перечисленные в резюме: %(resume_skills)s
+Также применял на проектах (не основной стек, но реальный опыт): %(known_skills)s
 Опыт работы соискателя: %(resume_total_experience)s
 Зарплата, указанная в резюме: %(resume_salary)s
 Предпочитаемый соискателем формат работы: %(resume_work_format)s
@@ -157,6 +159,8 @@ DEFAULT_TEST_CHOICE_PROMPT = (
 DEFAULT_TEST_TEXT_PROMPT = """\
 Тебя зовут: %(first_name)s
 Ты ищешь работу в качестве: %(resume_title)s
+Твои навыки: %(resume_skills)s
+Также применял на проектах (не основной стек, но реальный опыт): %(known_skills)s
 Твой профиль на github: %(github_profile_url)s
 Ты хочешь зарплату: %(resume_salary)s
 Подходящие форматы работы: %(resume_work_format)s

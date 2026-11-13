@@ -65,6 +65,7 @@ DEFAULT_USER_PROMPT = """\
 Предпочитаемый формат работы: %(resume_work_format)s
 Твои зарплатные ожидания: %(resume_salary)s
 Твои навыки: %(resume_skills)s
+Также применял на проектах (не основной стек, но реальный опыт): %(known_skills)s
 Твое образование: %(resume_education)s
 Ссылка на Github: %(github_profile_url)s.
 
@@ -91,6 +92,7 @@ DEFAULT_OPTIONS_PROMPT = """\
 Предпочитаемый формат работы: %(resume_work_format)s
 Твои зарплатные ожидания: %(resume_salary)s
 Твои навыки: %(resume_skills)s
+Также применял на проектах (не основной стек, но реальный опыт): %(known_skills)s
 
 Твой опыт:
 

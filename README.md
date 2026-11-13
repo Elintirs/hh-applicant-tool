@@ -456,6 +456,13 @@ model = "qwen3-vl:8b"
 delay = 5.0
 ```
 
+Навыки, которыми вы владеете, но не хотите выносить в резюме, перечислите в `known_skills`. Их видят AI-фильтр, ответы на тесты и ответы в чатах (плейсхолдер `%(known_skills)s`): модель не будет отвечать «нет опыта» и отклонять вакансии из-за них.
+
+```toml
+[general]
+known_skills = "Python, Redis, RabbitMQ, Docker Compose"
+```
+
 Еще можно под свои нужды ai-фильтр изменить, добавив его в блок `general`:
 
 ```toml
@@ -755,7 +762,7 @@ Email: %(email)s</p>
 #     message_history          - история переписки
 #     message_count            - число сообщений в истории
 #   Резюме:
-#     resume_title, resume_city, resume_about, resume_skills,
+#     resume_title, resume_city, resume_about, resume_skills, known_skills,
 #     resume_employment_form, resume_work_format, resume_citizenship,
 #     resume_salary, resume_education, resume_total_experience,
 #     resume_experience        - опыт работы (до 3 последних мест)

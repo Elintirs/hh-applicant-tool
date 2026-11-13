@@ -1222,6 +1222,8 @@ class HHApplicantTool:
         # Почему тут ебаут?
         rv["resume_about"] = resume.get("skills") or ""
         rv["resume_skills"] = ", ".join(resume.get("skill_set") or [])
+        # Что кандидат умеет, но не выносит в резюме, чтобы его не раздувать
+        rv["known_skills"] = self.general_config.get("known_skills", "")
         rv["resume_employment_form"] = ", ".join(
             i["name"] for i in (resume.get("employment_form") or [])
         )
