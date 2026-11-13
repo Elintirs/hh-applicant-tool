@@ -30,6 +30,7 @@ from ..operations import apply_vacancies as av
 from ..operations import clear_negotiations as cn
 from ..operations import reply_chats as rc
 from .. import google_forms as gforms
+from ..chat_store import DEFAULT_DAYS, ChatStore, normalize_message
 from ..tool import BaseNamespace, HHApplicantTool
 from ..utils.string import strip_tags
 
@@ -130,6 +131,31 @@ class HHService:
         self._chat_op: rc.Operation | None = None
         self._chat_cache: dict[int, rc.ProcessingChat] = {}
         self._form_ai: Any = None
+        self._store: ChatStore | None = None
+        self._cleaned_at = 0.0
+
+    # ---- кэш чатов -----------------------------------------------------
+
+    def store(self) -> ChatStore:
+        if self._store is None:
+            self._store = ChatStore(self.tool().config_dir_path)
+        # Чистка старых чатов: при старте и раз в сутки
+        if time.time() - self._cleaned_at > 86400:
+            self._cleaned_at = time.time()
+            try:
+                days = int(self.tool().general_config.get("chat_cache_days") or DEFAULT_DAYS)
+                n = self._store.cleanup(days)
+                if n:
+                    logger.info("Кэш чатов: удалено старых чатов %d", n)
+            except Exception:  # noqa: BLE001
+                logger.warning("Не почистил кэш чатов", exc_info=True)
+        return self._store
+
+    def chats_cached(self, unread: bool = False) -> dict[str, Any]:
+        return {"items": self.store().items(unread), "next": None, "cached": True}
+
+    def chat_messages_cached(self, chat_id: int) -> dict[str, Any] | None:
+        return self.store().messages(chat_id)
 
     # ---- инструмент ----------------------------------------------------
 
@@ -156,6 +182,7 @@ class HHService:
             self._chat_op = None
             self._chat_cache.clear()
             self._form_ai = None
+            self._store = None
 
     def logged_in(self) -> bool:
         return bool(self.tool().token_config.get("token"))
@@ -346,8 +373,17 @@ class HHService:
                     "last_is_mine": str(last.get("participantId") or "") == me,
                     "last_at": last.get("creationTime"),
                     "can_ai": bool(last and vacancy and resume_id),
+                    "_last_message": normalize_message(last, me) if last else None,
                 }
             )
+        try:
+            store = self.store()
+            store.put_items(items)
+            items = [store.with_kind(i) for i in items]
+        except Exception:  # noqa: BLE001
+            # Кэш - не главное: без него список всё равно отдаём
+            logger.warning("Кэш чатов недоступен", exc_info=True)
+            items = [{k: v for k, v in i.items() if k != "_last_message"} for i in items]
         return {"items": items, "next": chats.get("nextFrom"), "found": chats.get("found"), "unread": unread_count}
 
     def chat_messages(self, chat_id: int) -> dict[str, Any]:
@@ -370,24 +406,19 @@ class HHService:
             last = messages[-1]
             if last.get("id") != chat.get("lastViewedByCurrentUserMessageId"):
                 threading.Thread(target=self._mark_read, args=(chat_id, last["id"]), daemon=True).start()
-        return {
+        result = {
             "id": chat_id,
             "writable": writable,
             "has_more": (chat.get("messages") or {}).get("hasMore", False),
             "last_message_id": messages[-1].get("id") if messages else None,
             "options": op.get_reply_options(messages[-1]) if messages else [],
-            "messages": [
-                {
-                    "id": m.get("id"),
-                    "text": m.get("text") or "",
-                    "mine": str(m.get("participantId") or "") == me,
-                    "author": (m.get("participantDisplay") or {}).get("name"),
-                    "is_bot": bool((m.get("participantDisplay") or {}).get("isBot")),
-                    "at": m.get("creationTime"),
-                }
-                for m in messages
-            ],
+            "messages": [normalize_message(m, me) for m in messages],
         }
+        try:
+            self.store().put_messages(chat_id, result)
+        except Exception:  # noqa: BLE001
+            logger.warning("Не сохранил чат %s в кэш", chat_id, exc_info=True)
+        return result
 
     def _mark_read(self, chat_id: int, message_id: int) -> None:
         try:
@@ -420,6 +451,7 @@ class HHService:
             op = self._chats()
             op.leave_chat(chat_id, refer_url=op.chat_referer(chat_id))
             self._done()
+        self.store().drop(chat_id)
 
     def chat_ai_draft(self, chat_id: int) -> str:
         with self.lock:

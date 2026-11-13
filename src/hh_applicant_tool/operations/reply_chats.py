@@ -19,6 +19,7 @@ import requests
 from hh_applicant_tool.ai.openai import OpenAIChat, OpenAIError
 from hh_applicant_tool.api.errors import ApiError
 
+from ..chat_store import ChatStore, normalize_message
 from ..errors import XHRError
 from ..tool import BaseNamespace, BaseOperation
 from ..utils.date import parse_api_datetime
@@ -862,6 +863,23 @@ class Operation(BaseOperation):
             referer_url=refer_url,
         )
 
+    def cache_messages(self, chat: ProcessingChat, messages: list[ChatMessage]) -> None:
+        """Переписка в кэш панели: там она откроется сразу и получит метку человек/бот."""
+        try:
+            if getattr(self, "_store", None) is None:
+                self._store = ChatStore(self.tool.config_dir_path)
+            me = chat.current_participant_id
+            self._store.put_messages(chat.chat_id, {
+                "id": chat.chat_id,
+                "writable": True,
+                "has_more": False,
+                "last_message_id": messages[-1].get("id"),
+                "options": self.get_reply_options(messages[-1]),
+                "messages": [normalize_message(m, me) for m in messages],
+            })
+        except Exception:  # noqa: BLE001
+            logger.debug("Не сохранил чат #%s в кэш", chat.chat_id, exc_info=True)
+
     def leave_chat(self, chat_id: int, refer_url: str | None = None) -> dict:
         return self._xhr(
             "POST",
@@ -1298,6 +1316,7 @@ class Operation(BaseOperation):
                     chat.chat_id,
                 )
                 return
+            self.cache_messages(chat, messages)
 
             # if (n := len(messages)) >= MAX_CHAT_MESSAGES:
             #     logger.warning(

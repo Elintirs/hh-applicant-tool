@@ -976,6 +976,15 @@ def make_handler(app: PanelApp) -> type[BaseHTTPRequestHandler]:
     def chats(h: Handler) -> None:
         h.json(app.ctx().service.chats(h.query.get("from") or None, h.query.get("unread") == "1"))
 
+    # Из кэша: панель рисует сразу, свежее догружает обычным запросом
+    @route("GET", "chats/cached")
+    def chats_cached(h: Handler) -> None:
+        h.json(app.ctx().service.chats_cached(h.query.get("unread") == "1"))
+
+    @route("GET", "chats/:chat_id/cached")
+    def chat_get_cached(h: Handler, chat_id: str) -> None:
+        h.json(app.ctx().service.chat_messages_cached(int(chat_id)))
+
     @route("GET", "chats/:chat_id")
     def chat_get(h: Handler, chat_id: str) -> None:
         h.json(app.ctx().service.chat_messages(int(chat_id)))

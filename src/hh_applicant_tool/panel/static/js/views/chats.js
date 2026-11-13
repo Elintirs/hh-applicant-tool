@@ -13,6 +13,9 @@ const STATE = {
   HIRED: ["Выход на работу", "success"],
 };
 
+// Кто пишет со стороны работодателя; «неясно» без метки, чтобы не шуметь
+const KIND = { human: ["Человек", "badge-success"], bot: ["Бот", ""] };
+
 function when(s) { const t = Date.parse(s); return isNaN(t) ? "" : relTime(t / 1000); }
 
 function bubble(m) {
@@ -31,12 +34,13 @@ export default async function chats(root, ctx) {
 
   const listEl = h("div", { class: "card chat-list", role: "list", "aria-label": "Чаты" });
   // Фильтры поверх загруженного списка: без лишних запросов к hh
-  const view = { q: "", state: "" };
+  const view = { q: "", state: "", sort: "new" };
   const STATE_FILTERS = [
     ["", "Все статусы"],
     ["invite", "Приглашения и собеседования"],
     ["RESPONSE", "Отклики без ответа"],
     ["DISCARD", "Отказы"],
+    ["people", "Живые люди"],
     ["theirs", "Ждут меня (последнее от работодателя)"],
     ["mine", "Мой ответ последний"],
   ];
@@ -44,12 +48,14 @@ export default async function chats(root, ctx) {
   const matches = (c) => {
     if (view.state === "invite" && !INVITE.has(c.state)) return false;
     if (view.state === "theirs" && c.last_is_mine) return false;
+    if (view.state === "people" && c.kind !== "human") return false;
     if (view.state === "mine" && !c.last_is_mine) return false;
     if (["RESPONSE", "DISCARD"].includes(view.state) && c.state !== view.state) return false;
     if (!view.q) return true;
     return `${c.title || ""} ${c.subtitle || ""} ${c.vacancy || ""} ${c.last_text || ""}`.toLowerCase().includes(view.q);
   };
   const searchEl = input({ type: "search", placeholder: "Поиск: компания, вакансия, текст", "aria-label": "Поиск по чатам", oninput: (e) => { view.q = e.target.value.trim().toLowerCase(); renderList(); } });
+  const sortEl = select([["new", "Сначала новые"], ["score", "Сначала важные"]], { "aria-label": "Порядок чатов", title: "Важные: приглашения от людей, потом люди, которые ждут ответа, боты в конце", onchange: (e) => { view.sort = e.target.value; renderList(); } });
   const stateEl = select(STATE_FILTERS, { "aria-label": "Статус чата", onchange: (e) => { view.state = e.target.value; renderList(); } });
   const filtersEl = h("div", { class: "chat-filters" });
   const pane = h("section", { class: "card chat-pane", "aria-live": "off" });
@@ -79,6 +85,7 @@ export default async function chats(root, ctx) {
 
   function renderList() {
     const shown = list.filter(matches);
+    if (view.sort === "score") shown.sort((a, b) => (b.score || 0) - (a.score || 0) || Date.parse(b.last_at || 0) - Date.parse(a.last_at || 0));
     if (list.length && !shown.length) {
       mount(listEl, empty({ iconName: "search", title: "Ничего не нашлось", text: next ? "Поиск идёт по загруженным чатам. Загрузите ещё или поменяйте фильтр." : "Поменяйте фильтр или запрос." }),
         next ? h("div", { class: "chat-more" }, autoMore(button("Показать ещё", { variant: "ghost", onClick: (e) => busy(e.currentTarget, async () => { try { await load(true); renderList(); } catch (err) { toast(err.message, "error"); } }) }))) : null);
@@ -97,7 +104,8 @@ export default async function chats(root, ctx) {
         h("div", { class: "subtle truncate" }, c.subtitle || ""),
         h("div", { class: "row-between" },
           h("span", { class: "chat-last truncate" }, c.last_is_mine ? "Вы: " : "", c.last_text || "Без текста"),
-          h("span", { class: "row" }, stateLabel ? h("span", { class: `badge plain ${kind ? "badge-" + kind : ""}` }, stateLabel) : null,
+          h("span", { class: "row" }, KIND[c.kind] ? h("span", { class: `badge plain ${KIND[c.kind][1]}`, title: (c.kind_reasons || []).join(", ") }, KIND[c.kind][0]) : null,
+            stateLabel ? h("span", { class: `badge plain ${kind ? "badge-" + kind : ""}` }, stateLabel) : null,
             c.unread ? h("span", { class: "count", "aria-label": `непрочитано: ${c.unread}` }, String(c.unread)) : null)));
     });
     const more = next ? button("Показать ещё", { variant: "ghost", onClick: (e) => busy(e.currentTarget, async () => { try { await load(true); renderList(); } catch (err) { toast(err.message, "error"); } }) }) : null;
@@ -110,9 +118,22 @@ export default async function chats(root, ctx) {
     history.replaceState(null, "", `#/chats?id=${id}${filter === "unread" ? "&unread=1" : ""}`);
     renderList();
     mount(pane, h("div", { class: "card-body" }, skeleton(6)));
+    // Сначала из кэша (сразу), потом свежая из hh; перерисовка, только если что-то изменилось
+    let cachedData = null;
+    try { cachedData = await get(`chats/${id}/cached`); } catch { /* нет кэша */ }
+    if (selected !== id) return;
+    if (cachedData && cachedData.messages) renderPane(id, cachedData);
     let data;
     try { data = await get(`chats/${id}`); }
-    catch (err) { mount(pane, errorState(err, () => open(id))); return; }
+    catch (err) { if (!cachedData) mount(pane, errorState(err, () => open(id))); else toast(err.message, "error"); return; }
+    if (selected !== id) return;
+    if (cachedData && cachedData.messages && cachedData.last_message_id === data.last_message_id && cachedData.writable === data.writable) return;
+    const typed = pane.querySelector(".chat-composer textarea")?.value || "";
+    renderPane(id, data);
+    if (typed) { const t = pane.querySelector(".chat-composer textarea"); if (t && !t.disabled) t.value = typed; }
+  }
+
+  function renderPane(id, data) {
     const c = list.find((x) => x.id === id) || {};
     if (c.unread) { c.unread = 0; renderList(); }
 
@@ -238,7 +259,14 @@ export default async function chats(root, ctx) {
     try { await load(); renderList(); } catch { /* тихо, при следующем опросе */ }
   }
 
-  const cached = readCache();
+  let cached = readCache();
+  if (!cached) {
+    // Кэш на сервере: список с прошлого раза, пока hh отвечает
+    try {
+      const c = await get(`chats/cached${filter === "unread" ? "?unread=1" : ""}`);
+      if (c.items && c.items.length) { list = c.items; next = null; cached = true; }
+    } catch { /* без кэша */ }
+  }
   if (!cached) try { await load(); }
   catch (err) {
     if (/войдите/i.test(err.message)) {
@@ -253,7 +281,7 @@ export default async function chats(root, ctx) {
   mount(root,
     pageHeader("Чаты", "AI готовит черновик, отправляете вы. Автоответчик ждёт 15 минут после сообщения работодателя, так что успеете ответить сами.",
       button("", { variant: "ghost", iconName: "refresh", title: "Обновить", onClick: (e) => busy(e.currentTarget, refresh) })),
-    h("div", { class: "chats-layout" }, h("div", { class: "chat-side" }, mount(filtersEl, filterCtl, searchEl, stateEl), listEl), pane));
+    h("div", { class: "chats-layout" }, h("div", { class: "chat-side" }, mount(filtersEl, filterCtl, searchEl, stateEl, sortEl), listEl), pane));
   renderList();
   if (selected) open(selected); else mount(pane, placeholder());
   if (cached) refresh();
