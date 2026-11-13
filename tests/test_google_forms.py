@@ -68,3 +68,14 @@ def test_build_payload():
     assert "entry.12" not in p
     assert p["entry.14"] == ["React", "Node.js"]
     assert p["fvv"] == "1" and p["pageHistory"] == "0"
+
+
+def test_contact_answer_from_profile():
+    p = {"first_name": "Никита", "last_name": "Иванов", "phone": "79990001122", "email": "a@b.c"}
+    assert gf.contact_answer("Укажите: ФИО, Номер телефона, Telegram-логин", p) == "Иванов Никита, +79990001122"
+    assert gf.contact_answer("Ваш e-mail", p) == "a@b.c"
+    # Данных нет: пусто, заполнит пользователь
+    assert gf.contact_answer("Номер телефона", {"first_name": "Никита"}) == ""
+    # Не контакты: решает модель
+    assert gf.contact_answer("Есть ли опыт работы с почтовыми сервисами?", p) is None
+    assert gf.contact_answer("Сколько лет вы работаете разработчиком?", p) is None

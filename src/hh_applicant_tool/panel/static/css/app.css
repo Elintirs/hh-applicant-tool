@@ -211,7 +211,8 @@ svg { flex-shrink: 0; }
 .input-group .select { width: auto; flex: 0 0 auto; min-width: 72px; }
 
 .check { display: inline-flex; align-items: flex-start; gap: var(--space-2); cursor: pointer; }
-.check input { width: 16px; height: 16px; margin: var(--space-0-5) 0 0; accent-color: var(--color-accent); }
+.check input { flex: none; width: 16px; height: 16px; margin: var(--space-0-5) 0 0; accent-color: var(--color-accent); }
+.check > span { min-width: 0; overflow-wrap: anywhere; }
 
 /* Переключатель */
 .switch { position: relative; display: inline-flex; align-items: center; gap: var(--space-3); cursor: pointer; }

@@ -1,7 +1,7 @@
 import { get, post } from "../api.js";
 import {
   h, mount, clear, button, textarea, toast, busy, empty, skeleton, errorState, pageHeader, segmented,
-  relTime, confirmDialog, select, callout, input,
+  relTime, confirmDialog, select, callout, input, dateTime,
 } from "../ui.js";
 
 const STATE = {
@@ -171,7 +171,7 @@ export default async function chats(root, ctx) {
           const picked = Array.isArray(q.value) ? q.value : [];
           const boxes = q.options.map((o) => {
             const cb = h("input", { type: "checkbox", value: o, checked: picked.includes(o) });
-            return h("label", { class: "form-check" }, cb, h("span", null, o));
+            return h("label", { class: "check" }, cb, h("span", null, o));
           });
           input = h("div", { class: "form-boxes", dataset: { group: "1" } }, ...boxes);
         } else {
@@ -199,6 +199,7 @@ export default async function chats(root, ctx) {
           h("div", { class: "grow" }, h("h2", { class: "card-title truncate" }, "Анкета: " + (f.title || "Google Forms")),
             h("p", { class: "card-hint" }, "Ответы заполнены моделью. Проверьте и отправьте, отправка необратима.")),
           cancel),
+        f.sent_at ? callout("warning", `Эту анкету уже отправляли ${dateTime(Date.parse(f.sent_at) / 1000)}. Повторная отправка придёт работодателю ещё раз.`) : null,
         f.needs_login ? callout("warning", "Форма может требовать вход в Google. Если не отправится, заполните вручную: ", h("a", { href: f.url, target: "_blank", rel: "noopener noreferrer" }, "открыть анкету")) : null,
         h("div", { class: "card-body stack form-editor" }, ...controls),
         h("div", { class: "card-body row-between" }, cancel, submit));

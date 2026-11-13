@@ -14,6 +14,7 @@ run() сначала всё настраивает (конфиг, промпты
 from __future__ import annotations
 
 import base64
+import json
 import logging
 import threading
 import time
@@ -462,7 +463,7 @@ class HHService:
                 self._form_ai = self.tool().ai_chat_for(
                     "openai.test_solver",
                     system_prompt=av.DEFAULT_TEST_SYSTEM_PROMPT,
-                    temperature=0.2,
+                    temperature=0,
                 )
             form = gforms.fetch_form(url)
             placeholders = op.get_chat_placeholders(chat)
@@ -472,6 +473,7 @@ class HHService:
             self._done()
         return {
             "url": url,
+            "sent_at": self._form_sent_at(url),
             "title": form.title,
             "needs_login": form.needs_login,
             "questions": [
@@ -486,6 +488,23 @@ class HHService:
                 for q, value in answers
             ],
         }
+
+    def _form_sent_at(self, url: str) -> str | None:
+        """Когда эту анкету уже отправляли из панели: повторная придёт работодателю ещё раз."""
+        path = self.tool().config_dir_path / av.JOURNAL_FILENAME
+        message, sent = "Анкета: " + url, None
+        try:
+            with path.open(encoding="utf-8") as f:
+                for line in f:
+                    # Журнал большой: разбираем только похожие строки
+                    if "form_sent" not in line or url not in line:
+                        continue
+                    rec = json.loads(line)
+                    if rec.get("result") == "form_sent" and rec.get("message") == message:
+                        sent = rec.get("ts")
+        except (OSError, ValueError):
+            return None
+        return sent
 
     def chat_form_submit(self, chat_id: int, answers: list[dict]) -> dict[str, Any]:
         """Отправляет анкету (возможно, с правками пользователя) и пишет в чат."""

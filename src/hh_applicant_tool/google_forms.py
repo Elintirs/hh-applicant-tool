@@ -38,6 +38,30 @@ SKIP_TYPES = {6, 8, 11}  # заголовок секции, разрыв стр�
 
 _FORM_LINKS = "Ссылка на твоё резюме: %(resume_url)s\n"
 
+# Контакты в анкете заполняем сами из профиля hh: модель путает их и пишет «свяжитесь через hh»
+_CONTACT_RES = (
+    ("name", re.compile(r"фио|фамили|\bимя\b", re.I)),
+    ("phone", re.compile(r"телефон|whatsapp", re.I)),
+    ("email", re.compile(r"почт|e-?mail", re.I)),
+)
+
+
+def contact_answer(title: str, placeholders: dict[str, Any]) -> str | None:
+    """Ответ на вопрос о контактах из профиля или None, если вопрос не про них.
+    Пустая строка: данных нет, поле заполнит пользователь."""
+    if len(title) > 150 or re.search(r"опыт|работал", title, re.I):
+        return None
+    asked = [k for k, rx in _CONTACT_RES if rx.search(title)]
+    if not asked:
+        return None
+    phone = str(placeholders.get("phone") or "")
+    values = {
+        "name": " ".join(filter(None, (placeholders.get("last_name"), placeholders.get("first_name")))),
+        "phone": "+" + phone if phone.isdigit() else phone,
+        "email": placeholders.get("email") or "",
+    }
+    return ", ".join(v for k in asked if (v := values[k]))
+
 _CHOICE_PROMPT = _TEST_RESUME_BLOCK + _FORM_LINKS + """
 Вопрос анкеты: %(question)s
 Варианты:
@@ -166,6 +190,8 @@ def answer_form(
                 value: Any = picked or [choose_similar(ans, q.options)]
             else:
                 value = choose_similar(ans.strip(), q.options)
+        elif (contact := contact_answer(q.title, placeholders)) is not None:
+            value = contact
         else:
             prompt = render_template(
                 _TEXT_PROMPT, {**placeholders, "question": q.title},
