@@ -110,3 +110,20 @@ def test_retries_later_when_hh_fails():
     s._tick(NOW)
     assert s._planned["r"] == NOW + sch.RESUME_RETRY
     assert jobs.fired == []
+
+
+def test_daily_not_repeated_after_plan_reset():
+    # Отклики в 10:00 уже прошли, в 10:05 сохранили расписание (план в памяти сброшен)
+    ran = datetime(2026, 11, 9, 10, 0, 5).timestamp()
+    item = {"id": "a", "name": "Отклики", "args": ["apply-vacancies"], "enabled": True,
+            "mode": "daily", "times": ["10:00"], "days": [], "last_run_at": ran}
+    store, jobs = Store(), Jobs()
+    store.data["schedule"] = [sch.normalize(item)]
+    s = sch.Scheduler(store, jobs)
+    s._tick(datetime(2026, 11, 9, 10, 5))
+    assert jobs.fired == []
+    # Не запускавшийся слот в пределах 10 минут догоняется как раньше
+    store.data["schedule"][0]["last_run_at"] = None
+    s._planned.clear()
+    s._tick(datetime(2026, 11, 9, 10, 5))
+    assert jobs.fired == ["schedule:a"]

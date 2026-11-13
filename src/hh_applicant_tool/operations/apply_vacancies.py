@@ -93,6 +93,7 @@ SEARCH_PARAM_NAMES = (
 
 DEFAULT_PER_PAGE = 100
 JOURNAL_FILENAME = "apply-journal.jsonl"
+JOURNAL_MAX_BYTES = 50 * 1024 * 1024
 
 DEFAULT_COVER_LETTER = """\
 {Здравствуйте|Добрый день}, меня зовут %(first_name)s.\
@@ -294,8 +295,12 @@ def extract_letter_ask(description: str, limit: int = 900) -> str:
 def append_journal(config_dir: Any, rec: dict) -> None:
     """Журнал AI для статистики и панели: одна JSON-строка на решение
     (отклик на вакансию или ответ в чат)."""
+    path = config_dir / JOURNAL_FILENAME
     try:
-        with (config_dir / JOURNAL_FILENAME).open("a", encoding="utf-8") as f:
+        # Журнал читают целиком (панель, бот, сводка): большой уходит в архив .1
+        if path.exists() and path.stat().st_size > JOURNAL_MAX_BYTES:
+            path.replace(path.with_suffix(".1.jsonl"))
+        with path.open("a", encoding="utf-8") as f:
             f.write(json.dumps(rec, ensure_ascii=False) + "\n")
     except OSError as ex:
         logger.warning("Не записал журнал AI: %s", ex)

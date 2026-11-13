@@ -214,6 +214,11 @@ class Scheduler:
                         continue
                     if planned < now - MISSED_GRACE:
                         planned = next_run(item, now)
+                    # План сбросили (сохранение расписания, перезапуск панели), а этот
+                    # слот уже отработал: берём следующий, иначе запуск повторится
+                    last = item.get("last_run_at")
+                    if planned and item["mode"] == "daily" and last and last >= planned.timestamp():
+                        planned = next_run(item, planned + timedelta(minutes=1))
                     self._planned[item["id"]] = planned
                 if planned and planned <= now:
                     # Не плодим очередь: если прошлый запуск этой задачи ещё
