@@ -109,6 +109,19 @@ export async function busy(btn, fn) {
   }
 }
 
+// «Показать ещё» нажимается само, когда список докрутили почти до конца.
+// Срабатывает один раз: новая порция рисует новую кнопку, при ошибке кнопка остаётся для клика
+export function autoMore(btn) {
+  if (!btn || !("IntersectionObserver" in window)) return btn;
+  const io = new IntersectionObserver((entries) => {
+    if (!entries.some((e) => e.isIntersecting)) return;
+    io.disconnect();
+    if (btn.isConnected && !btn.disabled) btn.click();
+  }, { rootMargin: "400px" });
+  io.observe(btn);
+  return btn;
+}
+
 // ---- Поля ----
 let fieldSeq = 0;
 export function field({ label, flag, help, control, error, inherited, span2 }) {

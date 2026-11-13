@@ -1,7 +1,7 @@
 import { get, post } from "../api.js";
 import {
   h, mount, clear, button, textarea, toast, busy, empty, skeleton, errorState, pageHeader, segmented,
-  relTime, confirmDialog, select, callout, input, dateTime,
+  relTime, confirmDialog, select, callout, input, dateTime, autoMore,
 } from "../ui.js";
 
 const STATE = {
@@ -81,7 +81,7 @@ export default async function chats(root, ctx) {
     const shown = list.filter(matches);
     if (list.length && !shown.length) {
       mount(listEl, empty({ iconName: "search", title: "Ничего не нашлось", text: next ? "Поиск идёт по загруженным чатам. Загрузите ещё или поменяйте фильтр." : "Поменяйте фильтр или запрос." }),
-        next ? h("div", { class: "chat-more" }, button("Показать ещё", { variant: "ghost", onClick: (e) => busy(e.currentTarget, async () => { try { await load(true); renderList(); } catch (err) { toast(err.message, "error"); } }) })) : null);
+        next ? h("div", { class: "chat-more" }, autoMore(button("Показать ещё", { variant: "ghost", onClick: (e) => busy(e.currentTarget, async () => { try { await load(true); renderList(); } catch (err) { toast(err.message, "error"); } }) }))) : null);
       return;
     }
     if (!list.length) {
@@ -101,7 +101,7 @@ export default async function chats(root, ctx) {
             c.unread ? h("span", { class: "count", "aria-label": `непрочитано: ${c.unread}` }, String(c.unread)) : null)));
     });
     const more = next ? button("Показать ещё", { variant: "ghost", onClick: (e) => busy(e.currentTarget, async () => { try { await load(true); renderList(); } catch (err) { toast(err.message, "error"); } }) }) : null;
-    mount(listEl, ...rows, more ? h("div", { class: "chat-more" }, more) : null);
+    mount(listEl, ...rows, more ? h("div", { class: "chat-more" }, autoMore(more)) : null);
   }
 
   async function open(id) {

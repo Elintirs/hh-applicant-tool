@@ -1,6 +1,6 @@
 import { get, post } from "../api.js";
 import {
-  h, mount, button, toast, busy, empty, skeleton, errorState, pageHeader, segmented, subnav, relTime, icon,
+  h, mount, button, toast, busy, empty, skeleton, errorState, pageHeader, segmented, subnav, relTime, icon, autoMore,
 } from "../ui.js";
 import stats from "./stats.js";
 
@@ -41,7 +41,18 @@ async function listTab(host, ctx) {
   let page = 0, group = "all", status = "all", data = null;
   const listHost = h("div", { class: "stack" });
 
+  // Следующая страница дописывается к загруженным: листаем прокруткой, а не кнопками
+  async function more() {
+    const st = status;
+    const next = await get(`negotiations?status=${st}&page=${page + 1}`);
+    if (st !== status) return; // фильтр сменили, пока грузилось
+    page++;
+    data = { ...next, items: [...data.items, ...next.items] };
+    render();
+  }
+
   async function load() {
+    page = 0;
     mount(listHost, skeleton(6));
     try { data = await get(`negotiations?status=${status}&page=${page}`); }
     catch (err) {
@@ -67,7 +78,7 @@ async function listTab(host, ctx) {
   function render() {
     const items = data.items.filter((n) => inGroup(group, n.state));
     const discards = data.items.filter((n) => n.state === "discard");
-    const clearBtn = discards.length ? button(`Убрать отказы на странице (${discards.length})`, { size: "sm", variant: "ghost", iconName: "trash" }) : null;
+    const clearBtn = discards.length ? button(`Убрать загруженные отказы (${discards.length})`, { size: "sm", variant: "ghost", iconName: "trash" }) : null;
     if (clearBtn) clearBtn.addEventListener("click", () => busy(clearBtn, async () => {
       let ok = 0;
       for (const n of discards) { try { await post(`negotiations/${n.id}/hide`, { decline: false, delete_chat: false }); ok++; } catch { /* итог ниже */ } }
@@ -97,16 +108,15 @@ async function listTab(host, ctx) {
         subnav(GROUPS.map(([v, l]) => [v, [h("span", { class: "grow" }, l), h("span", { class: "subnav-count" }, String(count(v)))]]), group, (g) => { group = g; render(); }, "Статус"),
         h("div", { class: "stack" },
           h("div", { class: "row-between" },
-            segmented([["all", "С архивом"], ["active", "Активные"], ["archived", "Архив"]], status, (s) => { status = s; page = 0; load(); }, "Активность"),
+            segmented([["all", "С архивом"], ["active", "Активные"], ["archived", "Архив"]], status, (s) => { status = s; load(); }, "Активность"),
             clearBtn),
           items.length ? h("div", { class: "card rows-negotiations" },
               h("div", { class: "rows-head rows-line", "aria-hidden": "true" }, h("span", null, "Вакансия"), h("span", null, "Статус"), h("span", null, "Обновлён"), h("span", null)),
               h("ul", { class: "rows" }, rows))
-            : h("div", { class: "card" }, empty({ iconName: "inbox", title: "Здесь пусто", text: "На этой странице нет откликов с таким статусом." })),
+            : h("div", { class: "card" }, empty({ iconName: "inbox", title: "Здесь пусто", text: "Среди загруженных откликов таких нет." })),
           data.pages > 1 ? h("div", { class: "row-between" },
-            button("Назад", { variant: "ghost", iconName: "arrowLeft", disabled: page === 0, onClick: () => { page--; load(); } }),
-            h("span", { class: "subtle" }, `Страница ${page + 1} из ${data.pages}, всего ${data.found}`),
-            button("Дальше", { variant: "ghost", disabled: page + 1 >= data.pages, onClick: () => { page++; load(); } })) : null)));
+            h("span", { class: "subtle" }, `Загружено ${data.items.length} из ${data.found}`),
+            page + 1 < data.pages ? autoMore(button("Показать ещё", { variant: "ghost", onClick: (e) => busy(e.currentTarget, async () => { try { await more(); } catch (err) { toast(err.message, "error"); } }) })) : null) : null)));
   }
   mount(host, listHost);
   load();

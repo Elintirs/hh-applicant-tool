@@ -1,7 +1,7 @@
 import { get, post } from "../api.js";
 import {
   h, mount, button, field, input, select, textarea, toast, busy, empty, skeleton, errorState,
-  pageHeader, segmented, callout, relTime, icon, plural,
+  pageHeader, segmented, callout, relTime, icon, plural, autoMore,
 } from "../ui.js";
 import { argsFor, control } from "./run.js";
 
@@ -144,22 +144,38 @@ async function searchTab(host, ctx) {
       mount(resultsHost, h("div", { class: "card" }, empty({ iconName: "search", title: "Ничего не нашлось", text: "Попробуйте другие слова или уберите часть фильтров." })));
       return;
     }
-    const open = results.items.filter((v) => !v.skip_reason).length;
-    const pager = h("div", { class: "row-between" },
-      button("Назад", { variant: "ghost", iconName: "arrowLeft", disabled: page === 0, onClick: () => go(page - 1) }),
-      h("span", { class: "subtle" }, `Страница ${page + 1} из ${results.pages || 1}`),
-      button("Дальше", { variant: "ghost", disabled: page + 1 >= (results.pages || 1), onClick: () => go(page + 1) }));
+    const summary = h("p", { class: "muted" });
+    const list = h("ul", { class: "rows" }, results.items.map(vacancyCard));
+    const footer = h("div", { class: "row-between" });
+    // Следующая страница дописывается в конец, уже открытые карточки с письмами не перерисовываются
+    const more = async () => {
+      const req = results;
+      const next = await post("vacancies/search", { args: args().opts, resume_id: state.resume_id, page: page + 1 });
+      if (req !== results) return; // пока грузилось, запустили новый поиск
+      page++;
+      results.items.push(...next.items);
+      list.append(...next.items.map(vacancyCard));
+      update();
+    };
+    const update = () => {
+      const open = results.items.filter((v) => !v.skip_reason).length;
+      summary.textContent = `Найдено ${(results.found || 0).toLocaleString("ru-RU")} ${plural(results.found || 0, "вакансия", "вакансии", "вакансий")}. Среди загруженных можно откликнуться на ${open}.`;
+      mount(footer,
+        h("span", { class: "subtle" }, `Загружено ${results.items.length}`),
+        page + 1 < (results.pages || 1) ? autoMore(button("Показать ещё", { variant: "ghost", onClick: (e) => busy(e.currentTarget, async () => { try { await more(); } catch (err) { toast(err.message, "error"); } }) })) : null);
+    };
+    update();
     mount(resultsHost,
       h("div", { class: "row-between" },
-        h("p", { class: "muted" }, `Найдено ${(results.found || 0).toLocaleString("ru-RU")} ${plural(results.found || 0, "вакансия", "вакансии", "вакансий")}. На этой странице можно откликнуться на ${open}.`),
+        summary,
         button("Откликаться на такие по расписанию", { size: "sm", iconName: "clock", onClick: () => {
           sessionStorage.setItem("hh-panel-schedule-draft", JSON.stringify({ name: state.values.text ? `Отклики: ${state.values.text}` : "Отклики по резюме", args: ["apply-vacancies", ...args().opts, ...(state.resume_id ? [`--resume-id=${state.resume_id}`] : [])], mode: "daily", times: ["10:00"], days: [0, 1, 2, 3, 4] }));
           ctx.navigate("schedule", { draft: "1" });
         } })),
       h("div", { class: "card rows-vacancies" },
         h("div", { class: "rows-head rows-line", "aria-hidden": "true" }, h("span", null, "Вакансия"), h("span", { class: "rows-num" }, "Зарплата"), h("span", null)),
-        h("ul", { class: "rows" }, results.items.map(vacancyCard))),
-      pager);
+        list),
+      footer);
   }
 
   const searchBtn = button("Найти", { variant: "primary", iconName: "search", type: "submit" });
