@@ -595,6 +595,14 @@ cover_letter = """
 {С уважением|Хорошего дня|Спасибо за внимание}, %(first_name)s
 """
 
+# Шаблоны писем БЕЗ AI под разные вакансии: берётся первый, чьё ключевое слово
+# есть в названии или кратком описании вакансии; шаблон без keywords - запасной.
+# Явно выбрать шаблон: apply-vacancies --letter-template react (важнее AI).
+cover_letter_templates = [
+  { name = "react", keywords = ["react", "next.js"], text = "Здравствуйте! Пишу на React {5 лет|давно}, вакансия «%(vacancy_name)s» мне близка. %(first_name)s" },
+  { name = "default", text = "Здравствуйте! Прошу рассмотреть моё резюме «%(resume_title)s». %(first_name)s" },
+]
+
 # Промпт для генерации сопроводительного письма (когда AI включен)
 # Системный промпт: [openai.cover_letter].system_prompt
 cover_letter_prompt = """
