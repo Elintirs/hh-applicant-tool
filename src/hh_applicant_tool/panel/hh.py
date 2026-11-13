@@ -16,6 +16,7 @@ from __future__ import annotations
 import base64
 import json
 import logging
+import sqlite3
 import threading
 import time
 import uuid
@@ -23,9 +24,11 @@ from datetime import datetime
 from pathlib import Path
 from typing import Any
 
+import requests
+
 from ..ai.base import AIError
 from ..api.errors import ApiError
-from ..errors import OperationError
+from ..errors import OperationError, XHRError
 from ..operations import apply_vacancies as av
 from ..operations import clear_negotiations as cn
 from ..operations import reply_chats as rc
@@ -192,7 +195,6 @@ class HHService:
         self._tool: PanelTool | None = None
         self._chat_op: PanelChatsOp | None = None
         self._chat_cache: dict[int, rc.ProcessingChat] = {}
-        self._form_ai: Any = None
         self._store: ChatStore | None = None
         self._cleaned_at = 0.0
 
@@ -209,7 +211,7 @@ class HHService:
                 n = self._store.cleanup(days)
                 if n:
                     logger.info("Кэш чатов: удалено старых чатов %d", n)
-            except Exception:  # noqa: BLE001
+            except (sqlite3.Error, OSError):
                 logger.warning("Не почистил кэш чатов", exc_info=True)
         return self._store
 
@@ -238,12 +240,11 @@ class HHService:
             if self._tool is not None:
                 try:
                     self._tool.save_cookies()
-                except Exception:  # noqa: BLE001
-                    pass
+                except OSError as ex:
+                    logger.warning("Не сохранил cookies: %s", ex)
             self._tool = None
             self._chat_op = None
             self._chat_cache.clear()
-            self._form_ai = None
             self._store = None
 
     def logged_in(self) -> bool:
@@ -258,8 +259,8 @@ class HHService:
     def _done(self) -> None:
         try:
             self.tool().save_cookies()
-        except Exception:  # noqa: BLE001
-            pass
+        except OSError as ex:
+            logger.warning("Не сохранил cookies: %s", ex)
 
     # ---- профиль и резюме ---------------------------------------------
 
@@ -318,7 +319,8 @@ class HHService:
             data = tool.api_client.get(f"/resumes/{resume_id}")
             try:
                 placeholders = tool.get_resume_placeholders(resume_id)
-            except Exception:  # noqa: BLE001
+            except (ApiError, requests.RequestException) as ex:
+                logger.warning("Нет плейсхолдеров резюме %s: %s", resume_id, ex)
                 placeholders = {}
             self._done()
         return {"resume": data, "placeholders": placeholders}
@@ -441,7 +443,7 @@ class HHService:
             store = self.store()
             store.put_items(items)
             items = [store.with_kind(i) for i in items]
-        except Exception:  # noqa: BLE001
+        except (sqlite3.Error, OSError):
             # Кэш - не главное: без него список всё равно отдаём
             logger.warning("Кэш чатов недоступен", exc_info=True)
             items = [{k: v for k, v in i.items() if k != "_last_message"} for i in items]
@@ -472,7 +474,7 @@ class HHService:
         }
         try:
             self.store().put_messages(chat_id, result)
-        except Exception:  # noqa: BLE001
+        except (sqlite3.Error, OSError):
             logger.warning("Не сохранил чат %s в кэш", chat_id, exc_info=True)
         return result
 
@@ -480,7 +482,7 @@ class HHService:
         try:
             with self.lock:
                 self._chats().mark_chat_read(chat_id, message_id)
-        except Exception:  # noqa: BLE001
+        except (XHRError, requests.RequestException):
             logger.debug("Не отметил чат %s прочитанным", chat_id)
 
     def chat_quick_replies(self, chat_id: int, message_id: int) -> list[str]:
@@ -488,7 +490,7 @@ class HHService:
         try:
             with self.lock:
                 return self._chats().get_quick_replies(chat_id, message_id)
-        except Exception:  # noqa: BLE001
+        except (XHRError, requests.RequestException):
             return []
 
     def chat_send(self, chat_id: int, text: str) -> None:
@@ -547,18 +549,19 @@ class HHService:
             op, chat, url = self._chat_form_url(chat_id)
             if not op.ai_enabled:
                 raise RuntimeError("AI не настроен. Укажите модель в разделе «Модели»")
-            if self._form_ai is None:
-                self._form_ai = self.tool().ai_chat_for(
-                    "openai.test_solver",
-                    system_prompt=av.DEFAULT_TEST_SYSTEM_PROMPT,
-                    temperature=0,
-                )
-            form = gforms.fetch_form(url)
+            # Свой чат на каждый черновик: два черновика сразу не делят историю модели
+            ai = self.tool().ai_chat_for(
+                "openai.test_solver",
+                system_prompt=av.DEFAULT_TEST_SYSTEM_PROMPT,
+                temperature=0,
+            )
             placeholders = op.get_chat_placeholders(chat)
             resumes = {r["id"]: r for r in self.tool().get_resumes()}
             placeholders["resume_url"] = (resumes.get(chat.resume_id) or {}).get("alternate_url", "")
-            answers = gforms.answer_form(form, placeholders, self._form_ai)
             self._done()
+        # Google и модель - вне замка hh: черновик идёт минуту, остальная панель не ждёт
+        form = gforms.fetch_form(url)
+        answers = gforms.answer_form(form, placeholders, ai)
         return {
             "url": url,
             "sent_at": self._form_sent_at(url),
@@ -625,7 +628,7 @@ class HHService:
                     op.notify_chat_opened(chat_id)
                     op.send_chat_message(chat_id, "Заполнил анкету по ссылке.",
                                          refer_url=op.chat_referer(chat_id))
-                except Exception:  # noqa: BLE001
+                except (XHRError, requests.RequestException):
                     logger.warning("Анкета отправлена, но сообщение в чат не ушло")
             self._done()
         if not ok:
@@ -694,8 +697,9 @@ class HHService:
             op = self._apply_op([*args, "--ai-filter"]) if "--ai-filter" not in args else self._apply_op(args)
             vacancy = op.api_client.get(f"/vacancies/{vacancy_id}")
             ph = self._placeholders(op, resume_id, vacancy)
-            res = op.check(vacancy, ph)
             self._done()
+        # Фильтр и письмо - только модель, без запросов к hh: замок не держим
+        res = op.check(vacancy, ph)
         return {
             "excluded": res["excluded"],
             "suitable": res["suitable"],

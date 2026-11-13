@@ -6,6 +6,7 @@ import argparse
 import logging
 import random
 import re
+import sqlite3
 import time
 import uuid
 from dataclasses import dataclass
@@ -878,8 +879,8 @@ class Operation(BaseOperation):
                 "options": self.get_reply_options(messages[-1]),
                 "messages": [normalize_message(m, me) for m in messages],
             })
-        except Exception:  # noqa: BLE001
-            logger.debug("Не сохранил чат #%s в кэш", chat.chat_id, exc_info=True)
+        except (sqlite3.Error, OSError) as ex:
+            logger.warning("Не сохранил чат #%s в кэш: %s", chat.chat_id, ex)
 
     def leave_chat(self, chat_id: int, refer_url: str | None = None) -> dict:
         return self._xhr(
