@@ -67,7 +67,7 @@ PRIMARY_FLAGS = {
         "force_cover_letter",
         "letter_template",
     ],
-    "reply-chats": ["resume_id", "loop", "max_pages", "dry_run"],
+    "reply-chats": ["resume_id", "only_bots", "loop", "max_pages", "dry_run"],
     "clear-negotiations": ["older_than", "blacklist_discard", "dry_run"],
 }
 

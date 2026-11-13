@@ -52,3 +52,13 @@ def test_manual_by_keywords():
         ("Какой у вас опыт с NestJS?", False),
     ]:
         assert bool(rc.MANUAL_RE.search(text)) is manual, text
+
+
+def test_bot_thanks_skipped():
+    assert rc.is_bot_thanks("Спасибо за ответы! Мы передали их работодателю.")
+    assert rc.is_bot_thanks("Всё зафиксировал, спасибо. Передаю информацию работодателю. Если ваши ответы подойдут, с вами свяжутся.")
+    assert rc.is_bot_thanks("Благодарю за ответы! Представитель работодателя ознакомится с вашим резюме.")
+    # Вопрос, анкета или тестовое - это просьба, на неё реагируем
+    assert not rc.is_bot_thanks("Спасибо! Передам работодателю. А какие у вас ожидания по зарплате?")
+    assert not rc.is_bot_thanks("Спасибо за отклик! Мы рассмотрим резюме, заполните анкету: https://forms.gle/x")
+    assert not rc.is_bot_thanks("Укажите, пожалуйста, ваш опыт с Node.js")

@@ -160,6 +160,20 @@ DEFAULT_BUMP_PROMPT = """\
 
 # Он вроде больше не выскакивает
 # Автоответ hh после заполнения анкеты, на него отвечать не нужно
+# Финал бота: «спасибо, ответы передали работодателю». Отвечать не на что.
+# Со ссылкой, анкетой или тестовым это уже просьба, такие не трогаем
+BOT_THANKS_RE = re.compile(
+    r"(спасиб|благодар|зафиксировал|записал).*"
+    r"(переда[лмюн]|ознаком|изучит|рассмотр|свяж|верн[её]м|продолжит)",
+    re.I | re.S,
+)
+BOT_THANKS_STOP_RE = re.compile(r"\?|https?://|анкет|тестов|заполн|ссылк", re.I)
+
+
+def is_bot_thanks(text: str) -> bool:
+    return bool(BOT_THANKS_RE.search(text)) and not BOT_THANKS_STOP_RE.search(text)
+
+
 BOT_RECRUITER_ANSWER = (
     "Спасибо!\nВаши ответы отправлены работодателю. Если ваш отклик его "
     "заинтересует, он напишет в этом же чате или позвонит по номеру, "
@@ -553,6 +567,7 @@ class Namespace(BaseNamespace):
     max_pages: int
     dry_run: bool
     loop: bool
+    only_bots: bool
 
 
 class Operation(BaseOperation):
@@ -608,6 +623,12 @@ class Operation(BaseOperation):
             default=True,
             help="Запустить в цикле",
         )
+        parser.add_argument(
+            "--only-bots",
+            action=argparse.BooleanOptionalAction,
+            default=False,
+            help="Отвечать только ботам и ИИ-помощникам работодателей, людей и напоминания пропускать",
+        )
 
     # ---------------------------------------------------------------- run
     @property
@@ -620,6 +641,7 @@ class Operation(BaseOperation):
         self.max_pages = args.max_pages
         self.dry_run = args.dry_run
         self.loop = args.loop
+        self.only_bots = args.only_bots
 
         self.user_prompt: str = (
             tool.general_config.get("reply_chat_user_prompt")
@@ -962,6 +984,18 @@ class Operation(BaseOperation):
             if not self.dry_run:
                 self.leave_chat(chat.chat_id)
             return False
+
+        # Режим для частых запусков: только боты, людям отвечает общий прогон
+        if self.only_bots and (chat.last_is_mine or not chat.last_is_bot):
+            return False
+
+        if chat.last_is_bot and not chat.last_is_mine:
+            text = (chat.last_message_text or "").strip()
+            # Бот прислал пустое сообщение без кнопок или просто поблагодарил: молчим
+            if not text and not self.get_reply_options(chat.last_message):
+                return False
+            if is_bot_thanks(text):
+                return False
 
         if chat.last_is_mine:
             # Последнее сообщение моё: напоминаем о себе только спустя время
