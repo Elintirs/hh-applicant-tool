@@ -155,6 +155,14 @@ class PanelChatsOp(rc.Operation):
         )
 
 
+def _with_form(data: dict[str, Any]) -> dict[str, Any]:
+    """Есть ли в чате ссылка на Google-анкету от работодателя: панель покажет кнопку «Заполнить»."""
+    has = data.get("writable") and any(
+        not m.get("mine") and gforms.find_form_url(m.get("text") or "") for m in data.get("messages") or []
+    )
+    return {**data, "has_form": bool(has)}
+
+
 def _ns(parser_args: list[str]) -> BaseNamespace:
     """Аргументы операции так же, как их разобрал бы CLI."""
     return PanelTool.parser().parse_args(parser_args, namespace=BaseNamespace())
@@ -219,7 +227,8 @@ class HHService:
         return {"items": self.store().items(unread), "next": None, "cached": True}
 
     def chat_messages_cached(self, chat_id: int) -> dict[str, Any] | None:
-        return self.store().messages(chat_id)
+        data = self.store().messages(chat_id)
+        return _with_form(data) if data else None
 
     # ---- инструмент ----------------------------------------------------
 
@@ -476,7 +485,7 @@ class HHService:
             self.store().put_messages(chat_id, result)
         except (sqlite3.Error, OSError):
             logger.warning("Не сохранил чат %s в кэш", chat_id, exc_info=True)
-        return result
+        return _with_form(result)
 
     def _mark_read(self, chat_id: int, message_id: int) -> None:
         try:
@@ -533,14 +542,13 @@ class HHService:
         chat = self._chat_cache.get(chat_id)
         if chat is None:
             raise RuntimeError("Обновите список чатов и попробуйте снова")
-        url = gforms.find_form_url(chat.last_message.get("text") or "")
+        # Последняя ссылка работодателя: после неё мог ответить сам пользователь
+        texts = [m.get("text") or "" for m in (self.store().messages(chat_id) or {}).get("messages") or [] if not m.get("mine")]
+        texts.append(chat.last_message.get("text") or "")
+        url = next((u for t in reversed(texts) if (u := gforms.find_form_url(t))), None)
         if not url:
-            raise RuntimeError("В последнем сообщении нет ссылки на Google-форму")
+            raise RuntimeError("В переписке нет ссылки на Google-форму")
         return op, chat, url
-
-    def chat_has_form(self, chat_id: int) -> bool:
-        chat = self._chat_cache.get(chat_id)
-        return bool(chat and gforms.find_form_url(chat.last_message.get("text") or ""))
 
     def chat_form_draft(self, chat_id: int) -> dict[str, Any]:
         """Скачивает анкету по ссылке из чата и заполняет ответами модели.

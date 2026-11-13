@@ -173,9 +173,7 @@ export default async function chats(root, ctx) {
       catch (err) { toast(err.message, "error"); }
     });
 
-    const formRe = /https?:\/\/(forms\.gle\/\S+|docs\.google\.com\/forms\/\S+)/i;
-    const hasForm = data.writable && [...data.messages].reverse().some((m) => !m.mine && formRe.test(m.text || ""));
-    const formBtn = hasForm ? button("Заполнить анкету", { iconName: "sparkle" }) : null;
+    const formBtn = data.has_form ? button("Заполнить анкету", { iconName: "sparkle" }) : null;
     if (formBtn) formBtn.addEventListener("click", () => busy(formBtn, async () => {
       let draftData;
       try { draftData = await post(`chats/${id}/form`); }
