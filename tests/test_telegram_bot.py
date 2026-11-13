@@ -36,7 +36,7 @@ def make(tmp_path):
 def outbox(monkeypatch):
     out = []
     monkeypatch.setattr(notify, "send_message", lambda token, chat, text, buttons=None: out.append((chat, text, buttons)))
-    monkeypatch.setattr(notify, "_call", lambda *a, **k: {"ok": True})
+    monkeypatch.setattr(notify, "call", lambda *a, **k: {"ok": True})
     return out
 
 

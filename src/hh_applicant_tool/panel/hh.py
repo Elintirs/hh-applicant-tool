@@ -88,11 +88,73 @@ class PanelTool(HHApplicantTool):
     def _prompt_captcha_in_terminal(self, image_data: bytes) -> str:
         return self.broker.ask(image_data)
 
+    @classmethod
+    def parser(cls) -> Any:
+        """Парсер CLI: панель разбирает аргументы операций так же, как командная строка."""
+        return cls._create_parser()
+
+
+class PanelApplyOp(av.Operation):
+    """Отклики для панели: настройка из аргументов и проверка одной вакансии.
+    Откликается панель сама, по одной вакансии и с письмом от пользователя."""
+
+    def _apply_vacancies(self) -> None:
+        pass
+
+    def search_params(self, page: int) -> dict[str, Any]:
+        return self._get_search_params(page)
+
+    def resume_placeholders(self, resume: dict[str, Any]) -> dict[str, Any]:
+        return self._build_resume_placeholders(resume, self.tool.get_me())
+
+    def check(self, vacancy: dict[str, Any], ph: dict[str, Any]) -> dict[str, Any]:
+        """Фильтры и письмо для вакансии, без отклика."""
+        excluded = self._is_excluded(vacancy) if self.excluded_pat else False
+        suitable = ai_error = None
+        if self.vacancy_filter_ai:
+            try:
+                suitable = self._is_vacancy_suitable(vacancy, ph)
+            except AIError as ex:
+                # Модель недоступна: проверку не роняем, а говорим, что фильтр не сработал
+                ai_error = str(ex)
+        force, self.force_cover_letter = self.force_cover_letter, True
+        try:
+            letter = self._build_cover_letter(vacancy, ph)
+        except AIError as ex:
+            ai_error = ai_error or str(ex)
+            self.cover_letter_ai = None
+            letter = self._build_cover_letter(vacancy, ph)
+        finally:
+            self.force_cover_letter = force
+        if self.letter_template:
+            template = self.letter_template.get("name")
+        elif not self.cover_letter_ai:
+            t = self._match_letter_template(vacancy)
+            template = t.get("name") if t else None
+        else:
+            template = None
+        return {"excluded": excluded, "suitable": suitable, "ai_error": ai_error, "letter": letter,
+                "template": template, "letter_ai": bool(self.cover_letter_ai)}
+
+
+class PanelChatsOp(rc.Operation):
+    """Чаты для панели: те же запросы к hh, что у reply-chats, без автоответов."""
+
+    def reply_chats(self) -> None:
+        pass
+
+    def chat_data(self, chat_id: int) -> dict[str, Any]:
+        return self._xhr(
+            "GET",
+            "/chatik/api/chat_data",
+            params={"chatId": chat_id, "do_not_track_session_events": "true"},
+            referer_url=self.chat_referer(chat_id),
+        )
+
 
 def _ns(parser_args: list[str]) -> BaseNamespace:
     """Аргументы операции так же, как их разобрал бы CLI."""
-    parser = HHApplicantTool._create_parser()
-    return parser.parse_args(parser_args, namespace=BaseNamespace())
+    return PanelTool.parser().parse_args(parser_args, namespace=BaseNamespace())
 
 
 def _short_vacancy(v: dict[str, Any]) -> dict[str, Any]:
@@ -128,7 +190,7 @@ class HHService:
         # requests.Session не потокобезопасна: все обращения по очереди
         self.lock = threading.RLock()
         self._tool: PanelTool | None = None
-        self._chat_op: rc.Operation | None = None
+        self._chat_op: PanelChatsOp | None = None
         self._chat_cache: dict[int, rc.ProcessingChat] = {}
         self._form_ai: Any = None
         self._store: ChatStore | None = None
@@ -320,11 +382,10 @@ class HHService:
 
     # ---- чаты ----------------------------------------------------------
 
-    def _chats(self) -> rc.Operation:
+    def _chats(self) -> PanelChatsOp:
         if self._chat_op is None:
             tool = self._require_login()
-            op = rc.Operation()
-            op.reply_chats = lambda: None  # type: ignore[method-assign]
+            op = PanelChatsOp()
             op.run(tool, _ns(["reply-chats", "--dry-run"]))
             self._chat_op = op
         return self._chat_op
@@ -389,12 +450,7 @@ class HHService:
     def chat_messages(self, chat_id: int) -> dict[str, Any]:
         with self.lock:
             op = self._chats()
-            data = op._xhr(
-                "GET",
-                "/chatik/api/chat_data",
-                params={"chatId": chat_id, "do_not_track_session_events": "true"},
-                referer_url=op.chat_referer(chat_id),
-            )
+            data = op.chat_data(chat_id)
             chat = data.get("chat") or {}
             me = str(chat.get("currentParticipantId") or "")
             messages = (chat.get("messages") or {}).get("items") or []
@@ -578,17 +634,16 @@ class HHService:
 
     # ---- вакансии --------------------------------------------------------
 
-    def _apply_op(self, args: list[str]) -> av.Operation:
+    def _apply_op(self, args: list[str]) -> PanelApplyOp:
         tool = self._require_login()
-        op = av.Operation()
-        op._apply_vacancies = lambda: None  # type: ignore[method-assign]
+        op = PanelApplyOp()
         op.run(tool, _ns(["apply-vacancies", *args]))
         return op
 
     def search(self, args: list[str], resume_id: str, page: int = 0) -> dict[str, Any]:
         with self.lock:
             op = self._apply_op(args)
-            params = op._get_search_params(page)
+            params = op.search_params(page)
             if op.text:
                 endpoint = "/vacancies"
                 params |= {"text": op.text}
@@ -619,12 +674,12 @@ class HHService:
             return "Есть тест"
         return None
 
-    def _placeholders(self, op: av.Operation, resume_id: str, vacancy: dict[str, Any]) -> dict[str, Any]:
+    def _placeholders(self, op: PanelApplyOp, resume_id: str, vacancy: dict[str, Any]) -> dict[str, Any]:
         tool = op.tool
         resume = next((r for r in tool.get_resumes() if r["id"] == resume_id), None)
         if resume is None:
             raise RuntimeError("Резюме не найдено")
-        base = op._build_resume_placeholders(resume, tool.get_me())
+        base = op.resume_placeholders(resume)
         employer = vacancy.get("employer") or {}
         return {
             "vacancy_name": vacancy.get("name", ""),
@@ -639,39 +694,15 @@ class HHService:
             op = self._apply_op([*args, "--ai-filter"]) if "--ai-filter" not in args else self._apply_op(args)
             vacancy = op.api_client.get(f"/vacancies/{vacancy_id}")
             ph = self._placeholders(op, resume_id, vacancy)
-            excluded = op._is_excluded(vacancy) if op.excluded_pat else False
-            suitable = None
-            ai_error = None
-            if op.vacancy_filter_ai:
-                try:
-                    suitable = op._is_vacancy_suitable(vacancy, ph)
-                except AIError as ex:
-                    # Модель недоступна: не роняем проверку, а честно
-                    # говорим, что фильтр не сработал
-                    ai_error = str(ex)
-            force = op.force_cover_letter
-            op.force_cover_letter = True
-            try:
-                letter = op._build_cover_letter(vacancy, ph)
-            except AIError as ex:
-                ai_error = ai_error or str(ex)
-                op.cover_letter_ai = None
-                letter = op._build_cover_letter(vacancy, ph)
-            op.force_cover_letter = force
-            template = None
-            if op.letter_template:
-                template = op.letter_template.get("name")
-            elif not op.cover_letter_ai:
-                t = op._match_letter_template(vacancy)
-                template = t.get("name") if t else None
+            res = op.check(vacancy, ph)
             self._done()
         return {
-            "excluded": excluded,
-            "suitable": suitable,
-            "ai_error": ai_error,
-            "letter": letter,
-            "letter_source": "template" if template else ("ai" if op.cover_letter_ai else "default"),
-            "template": template,
+            "excluded": res["excluded"],
+            "suitable": res["suitable"],
+            "ai_error": res["ai_error"],
+            "letter": res["letter"],
+            "letter_source": "template" if res["template"] else ("ai" if res["letter_ai"] else "default"),
+            "template": res["template"],
             "description": strip_tags(vacancy.get("description") or "")[:4000],
             "key_skills": [s.get("name") for s in vacancy.get("key_skills") or [] if s.get("name")],
         }

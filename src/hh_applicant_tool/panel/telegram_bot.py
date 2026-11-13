@@ -78,10 +78,10 @@ class TelegramBot:
                 continue
             try:
                 if self._commands_for != token:
-                    notify._call(token, "setMyCommands", {"commands": [{"command": c, "description": d} for c, d in COMMANDS]})
+                    notify.call(token, "setMyCommands", {"commands": [{"command": c, "description": d} for c, d in COMMANDS]})
                     self._commands_for = token
                 offset = self.app.store.get("tg_offset") or 0
-                data = notify._call(token, "getUpdates", {"offset": offset, "timeout": 25, "allowed_updates": ["message", "callback_query"]}, timeout=40)
+                data = notify.call(token, "getUpdates", {"offset": offset, "timeout": 25, "allowed_updates": ["message", "callback_query"]}, timeout=40)
                 for upd in data.get("result") or []:
                     self.app.store.set("tg_offset", upd["update_id"] + 1)
                     try:
@@ -104,7 +104,7 @@ class TelegramBot:
         say = lambda text, buttons=None: notify.send_message(token, chat_id, text, buttons)  # noqa: E731
         if cb:
             try:
-                notify._call(token, "answerCallbackQuery", {"callback_query_id": cb["id"]})
+                notify.call(token, "answerCallbackQuery", {"callback_query_id": cb["id"]})
             except RuntimeError:
                 pass
             self._callback(say, cb.get("data") or "")

@@ -11,7 +11,7 @@ import argparse
 from pathlib import Path
 from typing import Any
 
-from ..tool import HHApplicantTool
+from .hh import PanelTool
 
 # Команды, которые в панели не нужны или запускаются иначе
 HIDDEN_OPERATIONS = {"panel", "log", "config"}
@@ -171,7 +171,7 @@ def _actions_by_group(parser: argparse.ArgumentParser) -> list[dict[str, Any]]:
 
 def operation_title(args: list[str]) -> str:
     """Человеческое название задачи по аргументам команды."""
-    parser = HHApplicantTool._create_parser()
+    parser = PanelTool.parser()
     sub = next(
         a for a in parser._actions if isinstance(a, argparse._SubParsersAction)
     )
@@ -189,7 +189,7 @@ def operation_title(args: list[str]) -> str:
 
 
 def build_schema() -> dict[str, Any]:
-    parser = HHApplicantTool._create_parser()
+    parser = PanelTool.parser()
 
     global_args = [
         _describe(a)

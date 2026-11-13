@@ -273,6 +273,7 @@ def make_handler(app: PanelApp) -> type[BaseHTTPRequestHandler]:
     class Handler(BaseHTTPRequestHandler):
         server_version = "hh-panel"
         protocol_version = "HTTP/1.1"
+        _raw: bytes | None = None
 
         def log_message(self, format: str, *args: Any) -> None:  # noqa: A002
             # Не пишем каждый запрос в log.txt утилиты: фронт опрашивает
@@ -322,7 +323,7 @@ def make_handler(app: PanelApp) -> type[BaseHTTPRequestHandler]:
         def _read_raw(self) -> bytes:
             # Тело читаем всегда, даже если обработчику оно не нужно: иначе
             # его остаток на keep-alive соединении примут за новый запрос
-            if getattr(self, "_raw", None) is None:
+            if self._raw is None:
                 length = int(self.headers.get("Content-Length") or 0)
                 if length > MAX_BODY:
                     self._raw = b""

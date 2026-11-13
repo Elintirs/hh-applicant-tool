@@ -25,6 +25,8 @@ import sys
 import uuid
 from pathlib import Path
 
+import urllib3
+
 MARK_START = "\x1b]hhp;"
 MARK_END = "\x07"
 
@@ -72,40 +74,37 @@ def panel_input(prompt: object = "") -> str:
     return answer
 
 
-def _patch_captcha() -> None:
+def tool_class() -> type:
+    """Утилита, у которой капча идёт в панель (и фото в Telegram), а не в окно tkinter."""
     from ..tool import HHApplicantTool
 
     captcha_dir = Path(os.environ.get("HH_PANEL_CAPTCHA_DIR") or ".")
 
-    def prompt_captcha(self, image_data: bytes) -> str:  # noqa: ARG001
-        captcha_dir.mkdir(parents=True, exist_ok=True)
-        path = captcha_dir / f"{uuid.uuid4().hex}.png"
-        path.write_bytes(image_data)
-        emit({"kind": "captcha", "prompt": "Введите текст с картинки", "image": path.name})
-        # Ответить можно и в панели, и реплаем в Telegram: бот найдёт задачу по метке
-        try:
+    class ChildTool(HHApplicantTool):
+        def _can_use_tkinter(self) -> bool:
+            return False
+
+        def _prompt_captcha_in_terminal(self, image_data: bytes) -> str:
+            captcha_dir.mkdir(parents=True, exist_ok=True)
+            path = captcha_dir / f"{uuid.uuid4().hex}.png"
+            path.write_bytes(image_data)
+            emit({"kind": "captcha", "prompt": "Введите текст с картинки", "image": path.name})
+            # Ответить можно и в панели, и реплаем в Telegram: бот найдёт задачу по метке
             from .. import notify
 
             notify.send_photo(self.config, image_data, captcha_caption(path.stem))
-        except Exception:  # noqa: BLE001
-            pass
-        try:
-            answer = _read_answer(CAPTCHA_WAIT)
-        finally:
-            emit({"kind": "answered"})
             try:
-                path.unlink()
-            except OSError:
-                pass
-        return answer.strip()
+                answer = _read_answer(CAPTCHA_WAIT)
+            finally:
+                emit({"kind": "answered"})
+                path.unlink(missing_ok=True)
+            return answer.strip()
 
-    HHApplicantTool._prompt_captcha_in_terminal = prompt_captcha  # type: ignore[method-assign]
-    HHApplicantTool._can_use_tkinter = lambda self: False  # type: ignore[method-assign]
+    return ChildTool
 
 
 def main() -> int | None:
     builtins.input = panel_input
-    _patch_captcha()
     secret = os.environ.pop("HH_PANEL_SECRET_ARGV", None)
     argv = sys.argv[1:]
     if secret:
@@ -113,9 +112,8 @@ def main() -> int | None:
             argv += [str(x) for x in json.loads(secret)]
         except ValueError:
             pass
-    from ..main import main as tool_main
-
-    return tool_main(argv)
+    urllib3.disable_warnings(urllib3.exceptions.InsecureRequestWarning)
+    return tool_class()().run(argv)
 
 
 if __name__ == "__main__":

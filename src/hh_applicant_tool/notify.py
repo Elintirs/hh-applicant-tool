@@ -49,7 +49,7 @@ def _post(url: str, **kw: Any) -> requests.Response:
     raise AssertionError("unreachable")
 
 
-def _call(token: str, method: str, payload: dict | None = None, timeout: float = 15) -> dict:
+def call(token: str, method: str, payload: dict | None = None, timeout: float = 15) -> dict:
     try:
         r = _post(API.format(token=token, method=method), json=payload or {}, timeout=timeout)
         data = r.json()
@@ -83,7 +83,7 @@ def send_message(token: str, chat_id: str, text: str, buttons: list[list[tuple[s
     payload: dict[str, Any] = {"chat_id": chat_id, "text": text[:4000], "disable_web_page_preview": True}
     if kb := keyboard(buttons):
         payload["reply_markup"] = kb
-    return _call(token, "sendMessage", payload).get("result") or {}
+    return call(token, "sendMessage", payload).get("result") or {}
 
 
 def send_photo(config: Any, image: bytes, caption: str) -> bool:
@@ -139,13 +139,13 @@ def send(
 
 def test(token: str, chat_id: str) -> None:
     """Пробное сообщение. Бросает RuntimeError с понятной причиной."""
-    _call(token, "sendMessage", {"chat_id": chat_id, "text": "✅ Панель hh подключена: сюда будут приходить уведомления."})
+    call(token, "sendMessage", {"chat_id": chat_id, "text": "✅ Панель hh подключена: сюда будут приходить уведомления."})
 
 
 def find_chats(token: str) -> list[dict[str, str]]:
     """Чаты, из которых недавно писали боту: так узнаём chat_id без ручного
     поиска. Пользователь сначала отправляет боту любое сообщение."""
-    data = _call(token, "getUpdates", {"limit": 50})
+    data = call(token, "getUpdates", {"limit": 50})
     chats: dict[str, dict[str, str]] = {}
     for upd in data.get("result") or []:
         msg = upd.get("message") or upd.get("my_chat_member") or {}
