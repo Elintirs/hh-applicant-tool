@@ -308,6 +308,11 @@ $ hh-applicant-tool check-updates
 🚀 Доступна новая версия: 2.4.5 (у вас 2.3.4)
 📦 Обновить: pip install -U hh-applicant-tool
 
+# Журнал решений по вакансиям: apply-journal.jsonl в папке конфига, одна JSON-строка
+# на вакансию (результат, ответ AI-фильтра, письмо, ответы на тест, модель и время).
+# Путь к папке конфига для вашей ОС - в таблице ниже
+$ tail -n 5 ~/.config/hh-applicant-tool/apply-journal.jsonl
+
 # Просмотр лога в реальном времени
 $ hh-applicant-tool log -f
 
