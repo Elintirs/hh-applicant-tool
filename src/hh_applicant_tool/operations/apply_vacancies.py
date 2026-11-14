@@ -98,15 +98,25 @@ DEFAULT_COVER_LETTER = """\
 
 # Системные промпты - простые строки, не шаблоны
 DEFAULT_COVER_LETTER_SYSTEM_PROMPT = """\
-Ты пишешь сопроводительные письма от первого лица на русском языке.
+Ты пишешь короткий текст отклика на hh.ru от лица кандидата, от первого лица, по-русски. Рекрутер видит его раньше резюме и тратит на него 10 секунд.
 
-Правила:
-- Выводи ТОЛЬКО текст письма. Без вступлений («Вот письмо», «Конечно»), без комментариев и пояснений после текста.
-- Не используй markdown: никаких звёздочек, решёток, списков, заголовков, кавычек вокруг письма.
-- Не используй плейсхолдеры в квадратных или фигурных скобках. Если данных нет, просто опусти эту деталь.
-- Не придумывай факты, опыт, компании и навыки, которых нет в запросе.
-- Не добавляй тему письма, контакты и подпись, кроме имени в конце.
-- Пиши только по-русски, без английских слов и вставок."""
+Как писать:
+1. Если в запросе есть блок «ЧТО РАБОТОДАТЕЛЬ ПРОСИТ НАПИСАТЬ В ОТКЛИКЕ», это главное: после «Здравствуйте!» ответь на каждый пункт по порядку, ничего не пропуская; если пункты пронумерованы, отвечай тоже по номерам. Кодовое слово или фразу вставь дословно. Сам вопрос работодателя не повторяй. Зарплата: из резюме, а если её нет, «обсуждается после деталей задач». Формат работы: из резюме. GitHub или примеры кода: ссылка из резюме, а если её нет, «примеры кода покажу на собеседовании». Когда готов начать: «обсудим на собеседовании». Проекты, задачи и истории (сложный баг, чем гордишься) бери только из опыта работы в резюме, не придумывай.
+2. Первое предложение: «Здравствуйте!», кто ты и два-три твоих навыка из резюме, которые нужны в этой вакансии. Стаж называй, только если вакансия просит не меньше твоего; если она рассчитана на меньший опыт, стаж не упоминай. Если язык или фреймворк вакансии отсутствует в навыках резюме, не называй его и не пиши, что работал с ним. Если вакансия на родственном инструменте, можно одной фразой честно сказать, какой у тебя основной стек.
+3. Дальше два факта из резюме, которые закрывают главные требования вакансии, лучше всего с цифрами из резюме.
+4. Последняя строка: имя кандидата из резюме и его Telegram, если он есть в резюме.
+
+Ограничения:
+- Без просьбы работодателя: 2-4 предложения до подписи, не больше 450 знаков. С просьбой: сколько нужно, чтобы ответить на все пункты, но не больше 1000 знаков.
+- Только факты из резюме. Чего нет в резюме, не упоминай. Каждую цифру бери из резюме вместе с проектом, к которому она относится: не переноси факты между проектами и не придумывай проценты.
+- Пиши как человек в чате с рекрутером: просто, коротко, без пафоса. Названия технологий латиницей.
+- Запрещено: «откликаюсь на позицию», «имею N лет опыта», «как указано в вакансии», «соответствует требованиям», «готов обсудить, как мой опыт поможет», «буду рад», «уверен», «ценный», «значительно», «эффективно», «успешно», «команда профессионалов», «динамично», «рассмотрите моё резюме», вопросы про зарплату.
+- Не пересказывай вакансию и не хвали компанию.
+- Выведи только текст: без markdown, списков, кавычек, темы письма и пояснений.
+
+Пример тона для другого, вымышленного кандидата. Не бери из него ни имя, ни контакты, ни факты:
+Здравствуйте! Пишу бэкенд на Go и PostgreSQL, 5 лет в коммерции. В платёжном сервисе переписал обработку вебхуков на очередь в Kafka, потерянных платежей стало ноль. Сейчас держу сервис на 3 тыс. RPS и сам веду деплой в Kubernetes.
+Алексей, Telegram @example_dev"""
 
 DEFAULT_AI_FILTER_SYSTEM_PROMPT = (
     "Ты определяешь, подходит ли вакансия кандидату. "
@@ -126,13 +136,33 @@ DEFAULT_TEST_SYSTEM_PROMPT = """\
 - Не придумывай факты о кандидате, которых нет в вопросе."""
 
 # Пользовательские промпты - шаблоны, подстановка через %(name)s
-DEFAULT_COVER_LETTER_PROMPT = (
-    "Сгенерируй сопроводительное письмо не более 5-7 предложений "
-    "для вакансии «%(vacancy_name)s» и работодателя «%(employer_name)s». "
-    "Меня зовут: %(first_name)s. Мое резюме: «%(resume_title)s». "
-    "Начни сразу с обращения или первого предложения, закончи именем. "
-    "Только текст письма, без markdown и комментариев."
-)
+DEFAULT_COVER_LETTER_PROMPT = """\
+ВАКАНСИЯ
+Название: %(vacancy_name)s
+Компания: %(employer_name)s
+Требуемый опыт: %(vacancy_experience)s
+Ключевые навыки: %(vacancy_skills)s
+Описание:
+%(vacancy_description).3000s
+
+ЧТО РАБОТОДАТЕЛЬ ПРОСИТ НАПИСАТЬ В ОТКЛИКЕ:
+%(vacancy_letter_ask)s
+
+РЕЗЮМЕ КАНДИДАТА
+Имя: %(first_name)s
+Должность: %(resume_title)s
+Общий опыт: %(resume_total_experience)s
+Навыки: %(resume_skills)s
+Также применял на проектах (не основной стек, но реальный опыт): %(known_skills)s
+Желаемая зарплата: %(resume_salary)s
+Формат работы: %(resume_work_format)s
+GitHub: %(github_profile_url)s
+О себе:
+%(resume_about).1500s
+Опыт работы:
+%(resume_experience).2500s
+
+Напиши сопроводительное письмо на эту вакансию."""
 
 DEFAULT_AI_FILTER_PROMPT = """\
 Название резюме: %(resume_title)s
@@ -175,6 +205,72 @@ DEFAULT_TEST_TEXT_PROMPT = """\
 
 DEFAULT_APPLY_MAIL_SUBJECT = "{Отклик|Резюме} на вакансию %(vacancy_name)s"
 DEFAULT_APPLY_MAIL_BODY = "{Здравствуйте|Добрый день}, {прошу рассмотреть|пожалуйста рассмотрите} мое резюме %(resume_url)s на вакансию %(vacancy_name)s."
+
+
+LETTER_RETRY_HINT = "\n\nВ прошлом варианте были числа, которых нет в резюме: %s. Напиши заново: только цифры и факты из резюме и только из того проекта, где они указаны. Если подходящей цифры нет, пиши без неё."
+
+
+LETTER_LINK_HINT = "\n\nВ прошлом варианте была выдуманная ссылка: %s. Ссылки на GitHub и профили пиши только те, что есть в резюме; если их нет, напиши, что примеры кода покажешь на собеседовании."
+
+_PROFILE_LINK_RE = re.compile(
+    r"(?:https?://)?(?:www\.)?(?:github\.com|gitlab\.com|linkedin\.com)/[\w./-]+",
+    re.I,
+)
+
+
+def _same_or_inside(link: str, own: str) -> bool:
+    """link совпадает с own или ведёт внутрь него: github.com/me/repo, но не github.com/me2."""
+    path = link.lower().rstrip(".,;)/").split("://")[-1].removeprefix("www.")
+    return path == own or path.startswith(own + "/")
+
+
+def foreign_links(text: str, allowed: str) -> list[str]:
+    """Ссылки на профили (GitHub, GitLab, LinkedIn) в тексте, кроме allowed."""
+    own = allowed.lower().rstrip("/").split("://")[-1].removeprefix("www.")
+    return [
+        m.rstrip(".,;)")
+        for m in _PROFILE_LINK_RE.findall(text or "")
+        if not own or not _same_or_inside(m, own)
+    ]
+
+
+def invented_numbers(text: str, source: str) -> list[str]:
+    """Числа из text, которых нет в source. Целые до 9 пропускаем:
+    «4 приложения», «2-3 года» не повод переписывать письмо."""
+
+    def nums(s: str) -> list[str]:
+        return re.findall(r"\d+(?:\.\d+)?", s.replace(",", "."))
+
+    known = set(nums(source))
+    return list(
+        dict.fromkeys(
+            n for n in nums(text) if n not in known and ("." in n or int(n) > 9)
+        )
+    )
+
+
+LETTER_ASK_RE = re.compile(
+    r"\b(?:в|к)\s+(?:сопроводительн\w*|отклик\w*|письм\w*)[^.?!]{0,80}?"
+    r"(?:напиш|укаж|ответ|расскаж|прилож|добав|опиш|пришл)"
+    r"|(?:напиш|укаж|ответьте|расскаж|прилож|добав|опиш)\w*[^.?!]{0,80}?"
+    r"в\s+(?:сопроводительн\w*|отклик\w*|письм\w*)"
+    r"|кодов\w*\s+слов|начните\s+(?:письмо|отклик|сообщение)|фраз\w*\s*[«\"]",
+    re.I,
+)
+
+
+def extract_letter_ask(description: str, limit: int = 900) -> str:
+    """Кусок описания, где работодатель просит что-то написать в отклике:
+    с начала этого предложения и дальше, до limit знаков."""
+    m = LETTER_ASK_RE.search(description or "")
+    if not m:
+        return ""
+    start = max(
+        description.rfind(sep, 0, m.start())
+        for sep in (". ", "\n", "! ", "? ", ": ")
+    )
+    start = 0 if start < 0 else start + 1
+    return " ".join(description[start : start + limit].split())
 
 
 class Namespace(BaseNamespace):
@@ -556,32 +652,43 @@ class Operation(BaseOperation):
 
         return True
 
+    def _add_vacancy_details(self, vacancy: dict, placeholders: dict) -> None:
+        """Догружает полную вакансию в плейсхолдеры: описание, навыки, опыт.
+        Фильтр и письмо получают один и тот же словарь, запрос идет один раз."""
+        if "vacancy_description" in placeholders:
+            return
+        # В выдаче поиска описания нет, полная вакансия приходит только по id
+        full_vacancy: Vacancy = (
+            vacancy
+            if "description" in vacancy
+            else self.api_client.get(f"/vacancies/{vacancy['id']}")
+        )
+        placeholders["vacancy_description"] = strip_tags(
+            full_vacancy.get("description") or ""
+        )
+        placeholders["vacancy_skills"] = ", ".join(
+            s["name"]
+            for s in (full_vacancy.get("key_skills") or [])
+            if s.get("name")
+        )
+        placeholders["vacancy_experience"] = (
+            full_vacancy.get("experience") or {}
+        ).get("name") or ""
+        # Просьбу к письму ищем по полному описанию: её часто пишут в конце,
+        # а в промпт описание попадает обрезанным
+        placeholders["vacancy_letter_ask"] = (
+            extract_letter_ask(placeholders["vacancy_description"]) or "нет"
+        )
+
     def _is_vacancy_suitable(
         self, vacancy: dict, placeholders: dict[str, str]
     ) -> bool:
         if not self.vacancy_filter_ai:
             return True
 
-        full_vacancy: Vacancy = self.api_client.get(
-            f"/vacancies/{vacancy['id']}"
-        )
-
-        key_skills = ", ".join(
-            s["name"]
-            for s in (full_vacancy.get("key_skills") or [])
-            if s.get("name")
-        )
-
+        self._add_vacancy_details(vacancy, placeholders)
         prompt = render_template(
-            self.ai_filter_prompt,
-            {
-                **placeholders,
-                "vacancy_description": strip_tags(
-                    full_vacancy.get("description") or ""
-                ),
-                "vacancy_skills": key_skills,
-            },
-            "промпта AI-фильтра",
+            self.ai_filter_prompt, placeholders, "промпта AI-фильтра"
         )
         response = self.vacancy_filter_ai.complete(prompt)
         logger.debug("AI ответ фильтра: %s", response)
@@ -881,6 +988,13 @@ class Operation(BaseOperation):
             return ""
 
         if self.cover_letter_ai:
+            self._add_vacancy_details(vacancy, message_placeholders)
+            # Только свой GitHub из конфига: значение по умолчанию - не ссылка кандидата
+            github = self.tool.general_config.get("github_profile_url", "")
+            message_placeholders = {
+                **message_placeholders,
+                "github_profile_url": github,
+            }
             prompt = render_template(
                 self.cover_letter_prompt,
                 message_placeholders,
@@ -888,6 +1002,19 @@ class Operation(BaseOperation):
             )
             logger.debug("prompt: %s", prompt)
             letter = self.cover_letter_ai.complete(prompt)
+            # Модель придумывала цифры («ускорило на 30 %»): число из письма
+            # должно быть в резюме или вакансии, иначе переписываем один раз
+            source = " ".join(str(v) for v in message_placeholders.values())
+            bad = invented_numbers(letter, source)
+            fake = foreign_links(letter, github)
+            if bad or fake:
+                hint = (LETTER_RETRY_HINT % ", ".join(bad)) if bad else ""
+                if fake:
+                    hint += LETTER_LINK_HINT % ", ".join(fake)
+                letter = self.cover_letter_ai.complete(prompt + hint)
+            # Ссылку на чужой профиль не отправляем, даже если модель упорствует
+            for link in foreign_links(letter, github):
+                letter = letter.replace(link, "").replace("  ", " ")
         else:
             letter = render_template(
                 rand_text(self.cover_letter),
