@@ -668,7 +668,20 @@ class HHApplicantTool:
     def _solve_captcha(self, image_data: bytes) -> str:
         if self.ai_enabled and not self.captcha_manual:
             logger.debug("Try recognize CAPTCHA text via AI")
-            return self.captcha_ai.recognize_text(image_data)
+            try:
+                return self.captcha_ai.recognize_text(image_data)
+            except ai.OpenAIError as ex:
+                # Без окна и терминала (cron) спросить некого: как раньше,
+                # ошибка уходит наверх, пропускается только эта вакансия
+                if not self._can_use_tkinter() and not sys.stdin.isatty():
+                    raise
+                # Текстовая модель картинку не читает (Ollama отвечает 400):
+                # капчу вводит человек
+                logger.warning(
+                    "Модель не распознала капчу, нужен ручной ввод "
+                    "(для AI задайте модель со зрением в [openai.captcha]): %s",
+                    ex,
+                )
 
         if self._can_use_tkinter():
             return self.prompt_captcha_tkinter(image_data)
