@@ -19,10 +19,12 @@ import requests
 from hh_applicant_tool.ai.openai import OpenAIChat, OpenAIError
 from hh_applicant_tool.api.errors import ApiError
 
+from .. import notify
 from ..constants import GITHUB_PROFILE_URL
 from ..errors import XHRError
 from ..tool import BaseNamespace, BaseOperation
 from ..utils.date import parse_api_datetime
+from ..utils.helpers import get_proxies_dict
 from ..utils.string import choose_similar, render_template, shorten, split_words
 
 if TYPE_CHECKING:
@@ -1181,9 +1183,20 @@ class Operation(BaseOperation):
                 # Чат остаётся непрочитанным: его видно на hh, ответ за человеком
                 manual = True
                 company = (chat.vacancy.get("company") or {}).get("name") or ""
+                url = self.chat_referer(chat.chat_id)
                 print(
-                    f"🙋 Чат #{chat.chat_id}: ответить самому ({company}) {self.chat_referer(chat.chat_id)}"
+                    f"🙋 Чат #{chat.chat_id}: ответить самому ({company}) {url}"
                 )
+                if not self.dry_run:
+                    # Один раз на сообщение: чат висит непрочитанным много запусков
+                    notify.send(
+                        self.tool.config,
+                        f"🙋 Ответить самому\n{company} · {chat.vacancy.get('name') or ''}\n\n"
+                        f"«{(chat.last_message_text or '')[:500]}»\n\n{url}",
+                        key=f"chat:{chat.chat_id}:{chat.last_message_id}",
+                        state_dir=self.tool.config_dir_path,
+                        proxies=get_proxies_dict(self.tool.proxy_url),
+                    )
                 return
 
             if self.is_farewell(send_message):
