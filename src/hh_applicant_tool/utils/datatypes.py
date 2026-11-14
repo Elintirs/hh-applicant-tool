@@ -38,6 +38,7 @@ class ResumePlaceholders(TypedDict):
     known_skills: str
     resume_employment_form: str
     resume_work_format: str
+    resume_relocation: str
     resume_citizenship: str
     resume_salary: str
     resume_education: str

@@ -1230,6 +1230,9 @@ class HHApplicantTool:
         rv["resume_work_format"] = ", ".join(
             i["name"] for i in (resume.get("work_format") or [])
         )
+        rv["resume_relocation"] = (
+            (resume.get("relocation") or {}).get("type") or {}
+        ).get("name") or ""
         rv["resume_citizenship"] = ", ".join(
             i["name"] for i in resume.get("citizenship") or []
         )
@@ -1240,7 +1243,8 @@ class HHApplicantTool:
             .replace("RUR", "руб.")
             .replace("USD", "$")
         )
-        rv["resume_salary"] = f"{amount} {currency}".strip()
+        # Без зарплаты в резюме пусто, а не «0»: модель отвечала работодателю «0»
+        rv["resume_salary"] = f"{amount} {currency}".strip() if amount else ""
         education = resume.get("education") or {}
 
         try:
