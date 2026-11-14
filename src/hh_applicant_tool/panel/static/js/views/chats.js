@@ -67,8 +67,19 @@ export default async function chats(root, ctx) {
     if (filter === "unread") q.set("unread", "1");
     if (more && next) q.set("from", next);
     const data = await get(`chats?${q}`);
-    list = more ? [...list, ...data.items] : data.items;
-    next = data.next;
+    if (more) {
+      const seen = new Set(list.map((c) => c.id));
+      list = [...list, ...data.items.filter((c) => !seen.has(c.id))];
+      next = data.next;
+    } else if (list.length > data.items.length) {
+      // Фоновое обновление: первая страница сливается с уже подгруженными,
+      // иначе список укорачивался и прокрутка улетала наверх
+      const fresh = new Set(data.items.map((c) => c.id));
+      list = [...data.items, ...list.filter((c) => !fresh.has(c.id))];
+    } else {
+      list = data.items;
+      next = data.next;
+    }
     if (!more) { try { sessionStorage.setItem(cacheKey(), JSON.stringify({ items: list, next })); } catch { /* без кэша */ } }
     return data;
   }
@@ -109,7 +120,9 @@ export default async function chats(root, ctx) {
             c.unread ? h("span", { class: "count", "aria-label": `непрочитано: ${c.unread}` }, String(c.unread)) : null)));
     });
     const more = next ? button("Показать ещё", { variant: "ghost", onClick: (e) => busy(e.currentTarget, async () => { try { await load(true); renderList(); } catch (err) { toast(err.message, "error"); } }) }) : null;
+    const top = listEl.scrollTop;
     mount(listEl, ...rows, more ? h("div", { class: "chat-more" }, autoMore(more)) : null);
+    listEl.scrollTop = top;
   }
 
   async function open(id) {
@@ -169,7 +182,7 @@ export default async function chats(root, ctx) {
     }));
     leave.addEventListener("click", async () => {
       if (!(await confirmDialog({ title: "Покинуть чат?", text: "Чат пропадёт из списка, и работодатель больше не сможет написать в него. Вернуть нельзя.", confirm: "Покинуть", danger: true }))) return;
-      try { await post(`chats/${id}/leave`); toast("Вы покинули чат"); selected = null; await load(); renderList(); mount(pane, placeholder()); }
+      try { await post(`chats/${id}/leave`); toast("Вы покинули чат"); selected = null; list = list.filter((x) => x.id !== id); await load(); renderList(); mount(pane, placeholder()); }
       catch (err) { toast(err.message, "error"); }
     });
 
@@ -275,7 +288,7 @@ export default async function chats(root, ctx) {
     return;
   }
 
-  const filterCtl = segmented([["all", "Все"], ["unread", "Непрочитанные"]], filter, async (f) => { filter = f; if (readCache()) renderList(); else mount(listEl, skeleton(5)); try { await load(); } catch (err) { toast(err.message, "error"); } renderList(); }, "Фильтр чатов");
+  const filterCtl = segmented([["all", "Все"], ["unread", "Непрочитанные"]], filter, async (f) => { filter = f; list = []; next = null; if (readCache()) renderList(); else mount(listEl, skeleton(5)); try { await load(); } catch (err) { toast(err.message, "error"); } renderList(); }, "Фильтр чатов");
   mount(root,
     pageHeader("Чаты", "AI готовит черновик, отправляете вы. Автоответчик ждёт 15 минут после сообщения работодателя, так что успеете ответить сами.",
       button("", { variant: "ghost", iconName: "refresh", title: "Обновить", onClick: (e) => busy(e.currentTarget, refresh) })),
