@@ -71,11 +71,11 @@ def test_build_payload():
 
 
 def test_contact_answer_from_profile():
-    p = {"first_name": "Никита", "last_name": "Иванов", "phone": "79990001122", "email": "a@b.c"}
-    assert gf.contact_answer("Укажите: ФИО, Номер телефона, Telegram-логин", p) == "Иванов Никита, +79990001122"
+    p = {"first_name": "Иван", "last_name": "Иванов", "phone": "79990001122", "email": "a@b.c"}
+    assert gf.contact_answer("Укажите: ФИО, Номер телефона, Telegram-логин", p) == "Иванов Иван, +79990001122"
     assert gf.contact_answer("Ваш e-mail", p) == "a@b.c"
     # Данных нет: пусто, заполнит пользователь
-    assert gf.contact_answer("Номер телефона", {"first_name": "Никита"}) == ""
+    assert gf.contact_answer("Номер телефона", {"first_name": "Иван"}) == ""
     # Не контакты: решает модель
     assert gf.contact_answer("Есть ли опыт работы с почтовыми сервисами?", p) is None
     assert gf.contact_answer("Сколько лет вы работаете разработчиком?", p) is None

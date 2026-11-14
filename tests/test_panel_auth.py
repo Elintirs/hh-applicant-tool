@@ -40,3 +40,16 @@ def test_panel_requires_token_and_csrf_header(panel):
     assert call(panel, "jobs", headers={"Cookie": cookie})[0] == 200
     # С cookie, но без заголовка изменять всё равно нельзя
     assert call(panel, "jobs/x/stop", "POST", {}, {"Cookie": cookie})[0] == 403
+
+
+def test_no_token_panel_rejects_foreign_host(tmp_path):
+    app = PanelApp(tmp_path)  # без токена: только этот компьютер
+    srv = ThreadingHTTPServer(("127.0.0.1", 0), make_handler(app))
+    threading.Thread(target=srv.serve_forever, daemon=True).start()
+    base = f"http://127.0.0.1:{srv.server_address[1]}/api/"
+    try:
+        assert call(base, "jobs")[0] == 200
+        # Страница с домена evil.example, перепривязанного на 127.0.0.1
+        assert call(base, "jobs", headers={"Host": "evil.example"})[0] == 403
+    finally:
+        srv.shutdown()

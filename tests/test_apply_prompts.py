@@ -107,7 +107,7 @@ def test_extract_letter_ask():
 
 
 def test_foreign_links():
-    t = "Код: github.com/nikita и https://github.com/Elintirs/hh-applicant-tool."
-    assert av.foreign_links(t, "") == ["github.com/nikita", "https://github.com/Elintirs/hh-applicant-tool"]
-    assert av.foreign_links(t, "https://github.com/Elintirs") == ["github.com/nikita"]
+    t = "Код: github.com/ivan и https://github.com/example/hh-applicant-tool."
+    assert av.foreign_links(t, "") == ["github.com/ivan", "https://github.com/example/hh-applicant-tool"]
+    assert av.foreign_links(t, "https://github.com/example") == ["github.com/ivan"]
     assert av.foreign_links("Примеры покажу на собеседовании.", "") == []

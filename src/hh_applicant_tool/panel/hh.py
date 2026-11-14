@@ -155,6 +155,13 @@ class PanelChatsOp(rc.Operation):
         )
 
 
+def _mtime(path: Path) -> int | None:
+    try:
+        return path.stat().st_mtime_ns
+    except OSError:
+        return None
+
+
 def _with_form(data: dict[str, Any]) -> dict[str, Any]:
     """Есть ли в чате ссылка на Google-анкету от работодателя: панель покажет кнопку «Заполнить»."""
     has = data.get("writable") and any(
@@ -205,6 +212,7 @@ class HHService:
         self._chat_cache: dict[int, rc.ProcessingChat] = {}
         self._store: ChatStore | None = None
         self._cleaned_at = 0.0
+        self._token_mtime: int | None = None
 
     # ---- кэш чатов -----------------------------------------------------
 
@@ -233,6 +241,11 @@ class HHService:
     # ---- инструмент ----------------------------------------------------
 
     def tool(self) -> PanelTool:
+        # Токен hh мог обновить процесс задачи (refresh_token одноразовый):
+        # со старым панель получала бы отказ до перезапуска
+        if self._tool is not None and _mtime(self._tool.token_config.path) != self._token_mtime:
+            self._tool = None
+            self._chat_op = None
         if self._tool is None:
             tool = PanelTool(
                 config_dir=self.base_dir,
@@ -241,6 +254,7 @@ class HHService:
             )
             tool.broker = self.broker
             self._tool = tool
+            self._token_mtime = _mtime(tool.token_config.path)
         return self._tool
 
     def reset(self) -> None:
@@ -609,38 +623,39 @@ class HHService:
         """Отправляет анкету (возможно, с правками пользователя) и пишет в чат."""
         with self.lock:
             op, chat, url = self._chat_form_url(chat_id)
-            form = gforms.fetch_form(url)  # свежий fbzx
-            by_id = {q.entry_id: q for q in form.questions}
-            pairs = [
-                (by_id[int(a["entry_id"])], a.get("value"))
-                for a in answers
-                if int(a["entry_id"]) in by_id
-            ]
-            ok = gforms.submit_form(form, pairs)
-            rec = {
-                "kind": "chat",
-                "ts": datetime.now().isoformat(timespec="seconds"),
-                "chat_id": chat_id,
-                "vacancy": chat.vacancy.get("name") or "",
-                "employer": (chat.vacancy.get("company") or {}).get("name") or "",
-                "url": op.chat_referer(chat_id),
-                "message": "Анкета: " + url,
-                "result": "form_sent" if ok else "form_error",
-                "form": [
-                    {"q": p[0].title[:300], "answer": p[1]} for p in pairs
-                ],
-            }
-            av.append_journal(self.tool().config_dir_path, rec)
-            if ok:
-                try:
-                    op.notify_chat_opened(chat_id)
-                    op.send_chat_message(chat_id, "Заполнил анкету по ссылке.",
-                                         refer_url=op.chat_referer(chat_id))
-                except (XHRError, requests.RequestException):
-                    logger.warning("Анкета отправлена, но сообщение в чат не ушло")
-            self._done()
+        # Google - вне замка hh: до трёх попыток по 30 секунд, панель не ждёт
+        form = gforms.fetch_form(url)  # свежий fbzx
+        by_id = {q.entry_id: q for q in form.questions}
+        pairs = [
+            (by_id[int(a["entry_id"])], a.get("value"))
+            for a in answers
+            if int(a["entry_id"]) in by_id
+        ]
+        ok = gforms.submit_form(form, pairs)
+        rec = {
+            "kind": "chat",
+            "ts": datetime.now().isoformat(timespec="seconds"),
+            "chat_id": chat_id,
+            "vacancy": chat.vacancy.get("name") or "",
+            "employer": (chat.vacancy.get("company") or {}).get("name") or "",
+            "url": op.chat_referer(chat_id),
+            "message": "Анкета: " + url,
+            "result": "form_sent" if ok else "form_error",
+            "form": [
+                {"q": p[0].title[:300], "answer": p[1]} for p in pairs
+            ],
+        }
+        av.append_journal(self.tool().config_dir_path, rec)
         if not ok:
             raise RuntimeError("Google не принял анкету. Проверьте в панели и заполните вручную")
+        with self.lock:
+            try:
+                op.notify_chat_opened(chat_id)
+                op.send_chat_message(chat_id, "Заполнил анкету по ссылке.",
+                                     refer_url=op.chat_referer(chat_id))
+            except (XHRError, requests.RequestException):
+                logger.warning("Анкета отправлена, но сообщение в чат не ушло")
+            self._done()
         return {"ok": True}
 
     # ---- вакансии --------------------------------------------------------

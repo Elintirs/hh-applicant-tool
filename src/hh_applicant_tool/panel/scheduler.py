@@ -142,7 +142,8 @@ class Scheduler:
         # id задачи -> на какой запуск уже прогрели модель
         self._warmed: dict[str, datetime] = {}
         self._stop = threading.Event()
-        self._lock = threading.Lock()
+        # RLock: сбой запуска задачи из _tick сразу зовёт _on_job_finish в том же потоке
+        self._lock = threading.RLock()
         # Для каждой задачи помним, на какое время она уже стоит в плане,
         # чтобы не запустить дважды за одну минуту
         self._planned: dict[str, datetime] = {}

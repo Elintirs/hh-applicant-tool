@@ -210,15 +210,17 @@ class JobManager:
             job = self._jobs.get(job_id)
             if not job:
                 return False
-            if job.status == QUEUED:
-                if job_id in self._queue:
-                    self._queue.remove(job_id)
-                self._finish(job, CANCELED, None)
-                return True
-            if job.status != RUNNING or not job._proc:
+            queued = job.status == QUEUED
+            if queued and job_id in self._queue:
+                self._queue.remove(job_id)
+            if not queued and (job.status != RUNNING or not job._proc):
                 return False
             job._stop_requested = True
             proc = job._proc
+        if queued:
+            # Вне замка очереди: слушатели (планировщик) берут свои замки
+            self._finish(job, CANCELED, None)
+            return True
         # Сначала вежливо: утилита ловит SIGINT/SIGTERM и сохраняет куки
         try:
             proc.send_signal(signal.SIGINT)
@@ -373,6 +375,10 @@ class JobManager:
                 start_new_session=True,
             )
         except OSError as ex:
+            # Задача ещё QUEUED, а полосу она уже заняла: освобождаем, иначе очередь встанет
+            with self._lock:
+                if job.in_lane:
+                    self._lane_busy = False
             self._append(job, f"Не удалось запустить: {ex}\n")
             self._finish(job, FAILED, None)
             return

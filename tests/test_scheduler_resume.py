@@ -127,3 +127,27 @@ def test_daily_not_repeated_after_plan_reset():
     s._planned.clear()
     s._tick(datetime(2026, 11, 9, 10, 5))
     assert jobs.fired == ["schedule:a"]
+
+
+def test_failed_start_does_not_deadlock_or_block_queue(tmp_path, monkeypatch):
+    import subprocess
+    import threading
+
+    from hh_applicant_tool.panel.runner import JobManager
+    from hh_applicant_tool.panel.store import PanelStore
+
+    store = PanelStore(tmp_path)
+    jobs = JobManager(store, tmp_path)
+    s = sch.Scheduler(store, jobs)
+    store.set("schedule", [{"id": "a", "profile": ".", "name": "x", "args": ["apply-vacancies"],
+                            "enabled": True, "mode": "interval", "every_minutes": 5}])
+
+    def boom(*a, **k):
+        raise OSError("EMFILE")
+
+    monkeypatch.setattr(subprocess, "Popen", boom)
+    t = threading.Thread(target=s._tick, args=(datetime.now(),), daemon=True)
+    t.start()
+    t.join(3)
+    assert not t.is_alive()  # раньше поток планировщика висел на своём же замке
+    assert not jobs._lane_busy  # и очередь оставалась занятой навсегда

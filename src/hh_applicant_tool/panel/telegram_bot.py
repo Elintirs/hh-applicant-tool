@@ -67,7 +67,9 @@ class TelegramBot:
         # Читаем каждый раз: токен могли поменять на вкладке «Уведомления»
         try:
             return notify.settings(ConfigTOML(self.app.ctx().settings.path))
-        except Exception:  # noqa: BLE001
+        except (OSError, ValueError) as ex:
+            # Битый config.toml: бот молчит, но в логе видно почему
+            logger.warning("Бот Telegram не прочитал настройки: %s", ex)
             return "", ""
 
     def _loop(self) -> None:
@@ -117,9 +119,11 @@ class TelegramBot:
             if m:
                 say(self._captcha_answer(m.group(1), text))
                 return
-            m = CHAT_RE.search(reply_to)
-            if m:
-                self._confirm_send(say, int(m.group(1)), text)
+            # Ссылка на чат стоит в конце уведомления, а в тексте работодателя
+            # выше может оказаться чужая: берём последнюю
+            ids = CHAT_RE.findall(reply_to)
+            if ids:
+                self._confirm_send(say, int(ids[-1]), text)
                 return
         cmd = text.split()[0].split("@")[0].lstrip("/").lower() if text.startswith("/") else ""
         self._command(say, cmd or "menu")

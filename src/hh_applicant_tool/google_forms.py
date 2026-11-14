@@ -14,6 +14,7 @@ from __future__ import annotations
 import json
 import re
 import time
+from urllib.parse import urlsplit
 from dataclasses import dataclass, field
 from typing import Any
 
@@ -129,6 +130,10 @@ def parse_form(html: str, final_url: str) -> Form:
     """Разбирает HTML опубликованной формы. final_url — адрес после редиректов."""
     if "accounts.google.com" in final_url:
         raise FormError("Форма требует входа в Google")
+    # Короткая ссылка forms.gle могла увести куда угодно: ответы с ФИО и
+    # телефоном отправляем только в Google Forms
+    if urlsplit(final_url).hostname != "docs.google.com":
+        raise FormError("Ссылка ведёт не на Google Forms")
     m = _FB_RE.search(html)
     if not m:
         raise FormError("Это не похоже на открытую Google-форму")

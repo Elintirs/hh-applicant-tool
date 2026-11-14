@@ -56,6 +56,7 @@ SSE_KEEPALIVE = 15.0
 MAX_BODY = 4 * 1024 * 1024
 PROFILE_RE = re.compile(r"^[A-Za-z0-9_.@-]{1,40}$")
 UPDATE_CHECK_TTL = 6 * 3600
+LOCAL_HOSTS = {"localhost", "127.0.0.1", "::1"}
 
 
 class ApiError(Exception):
@@ -370,6 +371,10 @@ def make_handler(app: PanelApp) -> type[BaseHTTPRequestHandler]:
             self.query = {k: v[-1] for k, v in parse_qs(url.query).items()}
             self._raw = None
             try:
+                # Без токена панель только для этого компьютера: чужой сайт с
+                # домена, перепривязанного на 127.0.0.1 (DNS rebinding), не пускаем
+                if not app.token and urlsplit("//" + (self.headers.get("Host") or "")).hostname not in LOCAL_HOSTS:
+                    raise ApiError("Панель без токена открывается только по localhost", 403)
                 if method not in ("GET", "HEAD"):
                     self._read_raw()
                 if not path.startswith("/api/"):
@@ -580,6 +585,8 @@ def make_handler(app: PanelApp) -> type[BaseHTTPRequestHandler]:
         path = app.ctx().dir / av.JOURNAL_FILENAME
         try:
             n = int(line)
+            if n < 0:
+                raise ValueError(n)
             text = path.read_text(encoding="utf-8").splitlines()[n]
         except (ValueError, IndexError, OSError) as ex:
             raise ApiError("Запись не найдена", 404) from ex

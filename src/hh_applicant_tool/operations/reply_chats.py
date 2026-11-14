@@ -1017,6 +1017,12 @@ class Operation(BaseOperation):
             if is_bot_thanks(text):
                 return False
 
+        # Уже отдан человеку (уведомление ушло): модель на него снова не зовём
+        if not chat.last_is_mine and notify.was_sent(
+            self.tool.config_dir_path, f"chat:{chat.chat_id}:{chat.last_message_id}"
+        ):
+            return False
+
         if chat.last_is_mine:
             # Последнее сообщение моё: напоминаем о себе только спустя время
             return chat.is_last_message_older(days=BUMP_AFTER_DAYS)
@@ -1365,7 +1371,8 @@ class Operation(BaseOperation):
         send_message, self.last_ai_call = ai_call(ai_client, prompt, "чат")
         send_message = send_message.strip()
 
-        if allow_manual and MANUAL_MARKER in send_message.upper():
+        # Только ответ целиком: «делал деплой вручную» - обычный ответ
+        if allow_manual and send_message.strip(" .!").upper() == MANUAL_MARKER:
             return MANUAL_MARKER
 
         logger.debug("AI message: %s", send_message)

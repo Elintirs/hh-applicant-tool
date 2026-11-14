@@ -68,6 +68,11 @@ def _sent_keys(state_dir: Path) -> list[str]:
         return []
 
 
+def was_sent(state_dir: Path, key: str) -> bool:
+    """Уведомление с этим ключом уже уходило."""
+    return key in _sent_keys(state_dir)
+
+
 def keyboard(rows: list[list[tuple[str, str]]] | None) -> dict | None:
     """Inline-кнопки: (текст, значение). Значение http… — ссылка, иначе
     callback_data для бота панели (не длиннее 64 байт)."""
