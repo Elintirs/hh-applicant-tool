@@ -117,6 +117,17 @@ function renderAccount() {
   mount(accountHost, trigger, menu);
 }
 
+// Сервер перезапустился (выкатка новой версии): открытая вкладка всё ещё со
+// старым JS. Предлагаем перезагрузить, сами не перезагружаем - мог быть набран текст
+async function checkServer() {
+  const info = await get("info").catch(() => null);
+  if (!info || !state.info || info.started_at === state.info.started_at) return;
+  if (document.querySelector(".update-banner")) return;
+  document.body.append(h("div", { class: "update-banner", role: "status" },
+    h("span", null, "Панель обновилась. Перезагрузите страницу, чтобы работала новая версия."),
+    button("Перезагрузить", { size: "sm", variant: "primary", onClick: () => location.reload() })));
+}
+
 async function refreshAccount() {
   const [profile, profiles] = await Promise.allSettled([get("profile"), get("profiles")]);
   state.account = profile.status === "fulfilled" ? profile.value : { error: profile.reason.message };
@@ -289,7 +300,7 @@ async function start() {
   refreshUpdates();
   state.timers.forEach(clearInterval);
   refreshModel();
-  state.timers = [setInterval(refreshRunning, 5000), setInterval(refreshAccount, 120000), setInterval(refreshModel, 15000)];
+  state.timers = [setInterval(refreshRunning, 5000), setInterval(refreshAccount, 120000), setInterval(refreshModel, 15000), setInterval(checkServer, 60000)];
   startPrompts({ onAnswered: refreshRunning });
 }
 
