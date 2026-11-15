@@ -89,3 +89,14 @@ def test_accepted_only_real_success():
     # Форма только для вошедших: уводит на вход
     assert not gf.accepted(302, "https://accounts.google.com/ServiceLogin?x", "")
     assert not gf.accepted(400, "", "")
+
+
+def test_checkbox_without_match_stays_empty(monkeypatch):
+    q = gf.Question(entry_id=1, title="С каким CRM работали?", type=gf.CHECKBOX, options=["АМО", "Битрикс 24", "YClients"], multiple=True)
+    form = gf.Form(response_url="u", title="t", questions=[q])
+    monkeypatch.setattr(gf, "render_template", lambda *a, **k: "prompt")
+    monkeypatch.setattr(gf, "ai_call", lambda chat, prompt, what: ("нет", {}))
+    # Раньше отмечался ближайший по тексту вариант («Битрикс 24»)
+    assert gf.answer_form(form, {}, None) == [(q, [])]
+    monkeypatch.setattr(gf, "ai_call", lambda chat, prompt, what: ("YClients", {}))
+    assert gf.answer_form(form, {}, None) == [(q, ["YClients"])]

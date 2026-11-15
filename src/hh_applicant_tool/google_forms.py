@@ -68,7 +68,10 @@ _CHOICE_PROMPT = _TEST_RESUME_BLOCK + _FORM_LINKS + """
 Варианты:
 %(reply_options)s
 
-Выбери подходящий вариант. Ответь только его текстом, без пояснений."""
+Выбери подходящий вариант. Ответь только его текстом, без пояснений.
+Если вопрос про опыт или навык, опирайся на навыки, «Также применял на проектах» и опыт работы: отрицательный вариант выбирай, только если этого нет нигде.%(multiple_hint)s"""
+
+_MULTIPLE_HINT = "\nМожно выбрать несколько: перечисли через перенос строки только варианты, которые точно есть в резюме. Если подходящих нет, ответь «нет»."
 
 _TEXT_PROMPT = _TEST_RESUME_BLOCK + _FORM_LINKS + """
 Вопрос анкеты: %(question)s"""
@@ -204,13 +207,15 @@ def answer_form(
             prompt = render_template(
                 _CHOICE_PROMPT,
                 {**placeholders, "question": q.title,
-                 "reply_options": "\n".join(q.options)},
+                 "reply_options": "\n".join(q.options),
+                 "multiple_hint": _MULTIPLE_HINT if q.multiple else ""},
                 "промпта варианта анкеты",
             )
             ans, _ = ai_call(chat, prompt, "анкета")
             if q.multiple:
-                picked = [o for o in q.options if o and o in ans]
-                value: Any = picked or [choose_similar(ans, q.options)]
+                # Ничего не подошло - пусто, а не ближайший по тексту вариант:
+                # так в анкету попадал «Битрикс 24», с которым кандидат не работал
+                value: Any = [o for o in q.options if o and o in ans]
             else:
                 value = choose_similar(ans.strip(), q.options)
         elif (contact := contact_answer(q.title, placeholders)) is not None:
