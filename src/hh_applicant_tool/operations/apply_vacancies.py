@@ -248,13 +248,19 @@ _PROFILE_LINK_RE = re.compile(
 )
 
 
+def _same_or_inside(link: str, own: str) -> bool:
+    """link совпадает с own или ведёт внутрь него: github.com/me/repo, но не github.com/me2."""
+    path = link.lower().rstrip(".,;)/").split("://")[-1].removeprefix("www.")
+    return path == own or path.startswith(own + "/")
+
+
 def foreign_links(text: str, allowed: str) -> list[str]:
     """Ссылки на профили (GitHub, GitLab, LinkedIn) в тексте, кроме allowed."""
     own = allowed.lower().rstrip("/").split("://")[-1].removeprefix("www.")
     return [
         m.rstrip(".,;)")
         for m in _PROFILE_LINK_RE.findall(text or "")
-        if not own or not m.lower().rstrip(".,;)/").split("://")[-1].removeprefix("www.").startswith(own)
+        if not own or not _same_or_inside(m, own)
     ]
 
 
@@ -642,11 +648,12 @@ class Operation(BaseOperation):
         self.tool = tool
         config = tool.general_config
         self.cover_letter = config.get("cover_letter", DEFAULT_COVER_LETTER)
-        self.cover_letter_templates = [
-            t
-            for t in config.get("cover_letter_templates") or []
-            if isinstance(t, dict) and t.get("text")
-        ]
+        self.cover_letter_templates = config.get("cover_letter_templates") or []
+        for t in self.cover_letter_templates:
+            if not isinstance(t, dict) or not t.get("text"):
+                raise OperationError(
+                    f"Шаблон письма без text в cover_letter_templates: {t!r}"
+                )
         self.letter_template = None
         if args.letter_template:
             self.letter_template = next(
@@ -1172,8 +1179,8 @@ class Operation(BaseOperation):
         return letter
 
     def _match_letter_template(self, vacancy: dict) -> dict[str, Any] | None:
-        """Первый шаблон, чьё ключевое слово есть в названии или описании
-        вакансии. Шаблон без ключевых слов - запасной."""
+        """Первый шаблон, чьё ключевое слово есть в названии или кратком
+        описании вакансии из поиска. Шаблон без ключевых слов - запасной."""
         if not self.cover_letter_templates:
             return None
         snippet = vacancy.get("snippet") or {}
@@ -1184,15 +1191,15 @@ class Operation(BaseOperation):
                     vacancy.get("name"),
                     snippet.get("requirement"),
                     snippet.get("responsibility"),
-                    vacancy.get("description"),
                 ],
             )
         ).lower()
         fallback = None
         for t in self.cover_letter_templates:
-            keywords = [
-                str(k).strip().lower() for k in t.get("keywords") or [] if str(k).strip()
-            ]
+            keywords = t.get("keywords") or []
+            if isinstance(keywords, str):
+                keywords = [keywords]
+            keywords = [str(k).strip().lower() for k in keywords if str(k).strip()]
             if not keywords:
                 fallback = fallback or t
                 continue

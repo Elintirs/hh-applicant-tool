@@ -111,3 +111,16 @@ def test_foreign_links():
     assert av.foreign_links(t, "") == ["github.com/ivan", "https://github.com/example/hh-applicant-tool"]
     assert av.foreign_links(t, "https://github.com/example") == ["github.com/ivan"]
     assert av.foreign_links("Примеры покажу на собеседовании.", "") == []
+
+
+def test_foreign_links_exact_owner():
+    # github.com/example2 - не своя ссылка, хотя начинается так же
+    t = "github.com/example2 и https://github.com/example/repo"
+    assert av.foreign_links(t, "https://github.com/example") == ["github.com/example2"]
+
+
+def test_letter_template_keywords_as_string():
+    op = av.Operation.__new__(av.Operation)
+    op.cover_letter_templates = [{"name": "r", "keywords": "react", "text": "a"}, {"name": "d", "text": "b"}]
+    assert op._match_letter_template({"name": "React dev"})["name"] == "r"
+    assert op._match_letter_template({"name": "Go dev"})["name"] == "d"

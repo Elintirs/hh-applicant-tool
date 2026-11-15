@@ -84,7 +84,7 @@ class Operation(BaseOperation):
     def run(self, tool: HHApplicantTool, args: Namespace) -> None:
         self.tool = tool
         self.args = args
-        if args.hide_stale:
+        if args.hide_stale is not None:
             self.hide_stale(args.hide_stale)
         else:
             self.clear()

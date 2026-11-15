@@ -8,6 +8,7 @@ from typing import TYPE_CHECKING
 
 from ..api import ApiError, datatypes
 from ..tool import BaseNamespace, BaseOperation
+from ..utils.date import parse_api_datetime
 from ..utils.string import shorten
 
 if TYPE_CHECKING:
@@ -30,7 +31,7 @@ def _why_not(resume: datatypes.Resume) -> str:
     next_at = resume.get("next_publish_at")
     if next_at:
         try:
-            when = datetime.strptime(next_at, "%Y-%m-%dT%H:%M:%S%z").astimezone()
+            when = parse_api_datetime(next_at).astimezone()
         except ValueError:
             return f"hh разрешает поднимать раз в 4 часа, следующий раз {next_at}"
         left = max(0, int((when - datetime.now(timezone.utc)).total_seconds() // 60))
@@ -56,7 +57,7 @@ class Operation(BaseOperation):
         for resume in resumes:
             if not resume.get("can_publish_or_update"):
                 logger.warning(
-                    f"Не могу обновить «{shorten(resume['title'])}»: "
+                    f"Не могу обновить «{shorten(resume.get('title') or '')}»: "
                     f"{_why_not(resume)}. {resume['alternate_url']}"
                 )
                 continue
