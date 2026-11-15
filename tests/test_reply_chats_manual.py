@@ -62,3 +62,36 @@ def test_bot_thanks_skipped():
     assert not rc.is_bot_thanks("Спасибо! Передам работодателю. А какие у вас ожидания по зарплате?")
     assert not rc.is_bot_thanks("Спасибо за отклик! Мы рассмотрим резюме, заполните анкету: https://forms.gle/x")
     assert not rc.is_bot_thanks("Укажите, пожалуйста, ваш опыт с Node.js")
+
+
+def _ai_op(tmp_path, monkeypatch, replies, messages=None, last_is_mine=False):
+    op, chat = make(tmp_path, None)
+    del op.get_ai_reply  # нужен настоящий метод класса
+    chat.last_is_mine = last_is_mine
+    chat.last_message = {"id": 1, "text": "Какая зарплата?"}
+    op._store = None
+    op.cache_messages = lambda *a: None
+    op.get_reply_options = lambda m: []
+    op.get_chat_placeholders = lambda c: {"resume_salary": "", "first_name": "Иван"}
+    op.get_open_chat_messages = lambda cid: messages or [
+        {"id": 1, "participantId": "hr", "text": "Какая зарплата?"}]
+    op.format_message_history = lambda *a, **k: "история"
+    op.user_prompt = op.bump_prompt = "%(first_name)s"
+    op.reply_chat_ai = object()
+    calls = iter(replies)
+    monkeypatch.setattr(rc, "ai_call", lambda client, prompt, what: (next(calls), {}))
+    return op, chat
+
+
+def test_invented_salary_rewritten_or_handed_to_human(tmp_path, monkeypatch):
+    op, chat = _ai_op(tmp_path, monkeypatch, ["От 120 000 рублей.", "Готов обсудить после деталей задач."])
+    assert op.get_ai_reply(chat, allow_manual=True) == "Готов обсудить после деталей задач."
+    op, chat = _ai_op(tmp_path, monkeypatch, ["От 120 000 рублей.", "Ну, 150 000."])
+    assert op.get_ai_reply(chat, allow_manual=True) == rc.MANUAL_MARKER
+
+
+def test_no_second_bump_without_answer(tmp_path, monkeypatch):
+    mine = [{"id": 1, "participantId": "hr", "text": "Анкета"}, {"id": 2, "participantId": "me", "text": "Заполнил"},
+            {"id": 3, "participantId": "me", "text": "Актуальна ли вакансия?"}]
+    op, chat = _ai_op(tmp_path, monkeypatch, ["Ещё раз напоминаю"], messages=mine, last_is_mine=True)
+    assert op.get_ai_reply(chat) is None
