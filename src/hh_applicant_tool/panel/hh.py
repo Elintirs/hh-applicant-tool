@@ -614,7 +614,7 @@ class HHService:
             for a in answers
             if int(a["entry_id"]) in by_id
         ]
-        ok = gforms.submit_form(form, pairs)
+        ok = gforms.submit_form(form, pairs, email=str(op.base_placeholders.get("email") or ""))
         rec = {
             "kind": "chat",
             "ts": datetime.now().isoformat(timespec="seconds"),

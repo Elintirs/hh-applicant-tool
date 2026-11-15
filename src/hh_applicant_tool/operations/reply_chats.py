@@ -1322,9 +1322,11 @@ class Operation(BaseOperation):
         rec["message"] = "Анкета: " + url
         try:
             form = gforms.fetch_form(url)
-            if form.needs_login:
-                raise gforms.FormError("анкета требует входа в Google")
             placeholders = self.get_chat_placeholders(chat)
+            # Форма собирает почту отвечающего: подставим почту из профиля hh
+            email = placeholders.get("email") or ""
+            if form.needs_login and not email:
+                raise gforms.FormError("анкета собирает почту, а в профиле hh её нет")
             resume = next((r for r in self.tool.get_resumes() if r["id"] == chat.resume_id), {})
             placeholders["resume_url"] = resume.get("alternate_url") or ""
             ai = self.tool.ai_chat_for(
@@ -1347,11 +1349,11 @@ class Operation(BaseOperation):
             for q, value in answers:
                 print(f"  {shorten(q.title, limit=80)}: {value}")
             return
-        ok = gforms.submit_form(form, answers)
+        ok = gforms.submit_form(form, answers, email=email)
         rec["result"] = "form_sent" if ok else "form_error"
         append_journal(self.tool.config_dir_path, rec)
         if not ok:
-            self.hand_to_human(chat, rec, "Google не принял анкету")
+            self.hand_to_human(chat, rec, "Google не принял анкету: возможно, нужен вход в аккаунт")
             return
         self.notify_chat_opened(chat.chat_id)
         self.mark_chat_read(chat.chat_id, chat.last_message_id)

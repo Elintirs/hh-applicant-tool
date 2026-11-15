@@ -79,3 +79,13 @@ def test_contact_answer_from_profile():
     # Не контакты: решает модель
     assert gf.contact_answer("Есть ли опыт работы с почтовыми сервисами?", p) is None
     assert gf.contact_answer("Сколько лет вы работаете разработчиком?", p) is None
+
+
+def test_accepted_only_real_success():
+    # Ответ записан: страница подтверждения без данных формы
+    assert gf.accepted(200, "", "<html>Ответ записан</html>")
+    # Пустое обязательное поле: Google снова показывает форму
+    assert not gf.accepted(200, "", "<script>var FB_PUBLIC_LOAD_DATA_ = [];</script>")
+    # Форма только для вошедших: уводит на вход
+    assert not gf.accepted(302, "https://accounts.google.com/ServiceLogin?x", "")
+    assert not gf.accepted(400, "", "")

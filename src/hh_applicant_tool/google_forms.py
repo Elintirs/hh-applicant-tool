@@ -90,7 +90,7 @@ class Form:
     title: str
     questions: list[Question]
     fbzx: str | None = None
-    needs_login: bool = False  # форма собирает почту / требует вход в Google
+    needs_login: bool = False  # форма собирает почту отвечающего (иногда ещё и вход в Google)
 
 
 class FormError(RuntimeError):
@@ -241,12 +241,25 @@ def submit_form(
     form: Form,
     answers: list[tuple[Question, Any]],
     session: requests.Session | None = None,
+    email: str = "",
 ) -> bool:
-    """Отправляет заполненную форму. True — Google принял ответ."""
+    """Отправляет заполненную форму. True — Google принял ответ.
+    email нужен формам, которые собирают почту отвечающего (needs_login)."""
     s = session or requests.Session()
     payload = build_payload(answers)
     if form.fbzx:
         payload["fbzx"] = form.fbzx
+    if form.needs_login and email:
+        payload["emailAddress"] = email
     r = s.post(form.response_url, data=payload, allow_redirects=False, timeout=30,
                headers={"User-Agent": "Mozilla/5.0"})
-    return r.status_code in (200, 302)
+    return accepted(r.status_code, r.headers.get("Location") or "", r.text)
+
+
+def accepted(status: int, location: str, body: str) -> bool:
+    """Принял ли Google ответ. С пустым обязательным полем (например, почтой)
+    он отвечает 200 и снова показывает форму с ошибкой, а форма только для
+    вошедших уводит на страницу входа: раньше оба случая считались успехом."""
+    if status == 302:
+        return "accounts.google.com" not in location
+    return status == 200 and "FB_PUBLIC_LOAD_DATA_" not in body

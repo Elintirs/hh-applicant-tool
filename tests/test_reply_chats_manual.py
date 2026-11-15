@@ -111,7 +111,7 @@ def _form_op(tmp_path, monkeypatch, value):
     form = gf.Form(response_url="https://docs.google.com/forms/x/formResponse", title="Анкета", questions=[q])
     monkeypatch.setattr(gf, "fetch_form", lambda url: form)
     monkeypatch.setattr(gf, "answer_form", lambda f, p, ai: [(q, value)])
-    monkeypatch.setattr(gf, "submit_form", lambda f, a: op.calls.append("submit") or True)
+    monkeypatch.setattr(gf, "submit_form", lambda f, a, **k: op.calls.append("submit") or True)
     return op, chat
 
 
