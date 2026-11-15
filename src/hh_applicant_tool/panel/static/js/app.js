@@ -42,7 +42,7 @@ const ROUTES = [
   { path: "letters", redirect: "texts" },
 ];
 
-const state = { info: null, cleanup: null, timers: [], started: false, account: null, profiles: null };
+const state = { info: null, cleanup: null, timers: [], started: false, account: null, profiles: null, renderSeq: 0 };
 
 // ---- Тема ----
 function currentTheme() {
@@ -185,12 +185,18 @@ async function render() {
   document.title = `${route.title} · Панель hh-applicant-tool`;
   const tt = document.getElementById("topbar-title");
   if (tt) tt.textContent = route.title;
-  const content = document.getElementById("content");
-  mount(content);
+  // Свой контейнер на каждый показ экрана: экран, с которого уже ушли, но
+  // который ещё догружался, рисует в отцепленный узел и не перекрывает текущий
+  const seq = ++state.renderSeq;
+  const host = h("div", { class: "view-host" });
+  mount(document.getElementById("content"), host);
   const ctx = { params, navigate, info: state.info, refreshRunning, refreshAccount, account: () => state.account };
   try {
-    const cleanup = await route.view(content, ctx);
-    if (typeof cleanup === "function") state.cleanup = cleanup;
+    const cleanup = await route.view(host, ctx);
+    if (typeof cleanup !== "function") return;
+    // Пока экран грузился, ушли на другой: его таймеры и потоки гасим сразу
+    if (seq !== state.renderSeq) { try { cleanup(); } catch { /* ничего */ } return; }
+    state.cleanup = cleanup;
   } catch (err) {
     console.error(err);
     toast(err.message || String(err), "error");
