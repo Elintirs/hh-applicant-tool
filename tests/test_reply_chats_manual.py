@@ -104,6 +104,7 @@ def _form_op(tmp_path, monkeypatch, value):
     op.fill_forms, op._viewed_messages = True, set()
     chat.last_message = {"id": 1, "text": "Заполните анкету: https://forms.gle/abc"}
     op.get_chat_placeholders = lambda c: {}
+    op.resume_contacts = lambda rid: {"email": "a@b.c", "phone": ""}
     op.tool.get_resumes = lambda: []
     op.tool.ai_chat_for = lambda *a, **k: object()
     op.hand_to_human = lambda c, r, reason="": op.calls.append("human:" + reason)

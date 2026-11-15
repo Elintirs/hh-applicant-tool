@@ -1306,6 +1306,18 @@ class Operation(BaseOperation):
             ],
         )
 
+    def resume_contacts(self, resume_id: str) -> dict[str, str]:
+        """Почта и телефон из контактов резюме: в профиле hh (/me) их часто нет,
+        а анкеты работодателей их спрашивают."""
+        out = {"email": "", "phone": ""}
+        for c in self.tool.api_client.get(f"/resumes/{resume_id}").get("contact") or []:
+            kind, value = (c.get("type") or {}).get("id"), c.get("value")
+            if kind == "email" and isinstance(value, str):
+                out["email"] = value
+            elif kind == "cell" and isinstance(value, dict):
+                out["phone"] = value.get("formatted") or value.get("number") or ""
+        return out
+
     def form_url(self, chat: ProcessingChat) -> str | None:
         """Ссылка на Google-анкету в последнем сообщении работодателя, если её
         надо заполнить: включено --fill-forms, есть AI и анкету ещё не отправляли."""
@@ -1323,10 +1335,12 @@ class Operation(BaseOperation):
         try:
             form = gforms.fetch_form(url)
             placeholders = self.get_chat_placeholders(chat)
-            # Форма собирает почту отвечающего: подставим почту из профиля hh
+            for key, value in self.resume_contacts(chat.resume_id).items():
+                placeholders[key] = placeholders.get(key) or value
+            # Форма собирает почту отвечающего: подставим почту из профиля или резюме
             email = placeholders.get("email") or ""
             if form.needs_login and not email:
-                raise gforms.FormError("анкета собирает почту, а в профиле hh её нет")
+                raise gforms.FormError("анкета собирает почту, а в профиле и резюме её нет")
             resume = next((r for r in self.tool.get_resumes() if r["id"] == chat.resume_id), {})
             placeholders["resume_url"] = resume.get("alternate_url") or ""
             ai = self.tool.ai_chat_for(

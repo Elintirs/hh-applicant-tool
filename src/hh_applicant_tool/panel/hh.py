@@ -577,6 +577,8 @@ class HHService:
                 temperature=0,
             )
             placeholders = op.get_chat_placeholders(chat)
+            for key, value in op.resume_contacts(chat.resume_id).items():
+                placeholders[key] = placeholders.get(key) or value
             resumes = {r["id"]: r for r in self.tool().get_resumes()}
             placeholders["resume_url"] = (resumes.get(chat.resume_id) or {}).get("alternate_url", "")
             self._done()
@@ -606,6 +608,7 @@ class HHService:
         """Отправляет анкету (возможно, с правками пользователя) и пишет в чат."""
         with self.lock:
             op, chat, url = self._chat_form_url(chat_id)
+            email = op.base_placeholders.get("email") or op.resume_contacts(chat.resume_id)["email"]
         # Google - вне замка hh: до трёх попыток по 30 секунд, панель не ждёт
         form = gforms.fetch_form(url)  # свежий fbzx
         by_id = {q.entry_id: q for q in form.questions}
@@ -614,7 +617,7 @@ class HHService:
             for a in answers
             if int(a["entry_id"]) in by_id
         ]
-        ok = gforms.submit_form(form, pairs, email=str(op.base_placeholders.get("email") or ""))
+        ok = gforms.submit_form(form, pairs, email=email)
         rec = {
             "kind": "chat",
             "ts": datetime.now().isoformat(timespec="seconds"),
