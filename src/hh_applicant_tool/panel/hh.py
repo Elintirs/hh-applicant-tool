@@ -14,7 +14,6 @@ run() сначала всё настраивает (конфиг, промпты
 from __future__ import annotations
 
 import base64
-import json
 import logging
 import sqlite3
 import threading
@@ -586,7 +585,7 @@ class HHService:
         answers = gforms.answer_form(form, placeholders, ai)
         return {
             "url": url,
-            "sent_at": self._form_sent_at(url),
+            "sent_at": gforms.sent_at(self.tool().config_dir_path, url),
             "title": form.title,
             "needs_login": form.needs_login,
             "questions": [
@@ -602,22 +601,6 @@ class HHService:
             ],
         }
 
-    def _form_sent_at(self, url: str) -> str | None:
-        """Когда эту анкету уже отправляли из панели: повторная придёт работодателю ещё раз."""
-        path = self.tool().config_dir_path / av.JOURNAL_FILENAME
-        message, sent = "Анкета: " + url, None
-        try:
-            with path.open(encoding="utf-8") as f:
-                for line in f:
-                    # Журнал большой: разбираем только похожие строки
-                    if "form_sent" not in line or url not in line:
-                        continue
-                    rec = json.loads(line)
-                    if rec.get("result") == "form_sent" and rec.get("message") == message:
-                        sent = rec.get("ts")
-        except (OSError, ValueError):
-            return None
-        return sent
 
     def chat_form_submit(self, chat_id: int, answers: list[dict]) -> dict[str, Any]:
         """Отправляет анкету (возможно, с правками пользователя) и пишет в чат."""

@@ -7,7 +7,7 @@ from hh_applicant_tool.operations import reply_chats as rc
 def make(tmp_path, reply):
     op = object.__new__(rc.Operation)
     op.tool = type("Tool", (), {"config_dir_path": tmp_path, "ai_enabled": True, "config": {}})()
-    op.dry_run, op.calls = False, []
+    op.dry_run, op.calls, op.fill_forms = False, [], False
     op.chat_referer = lambda chat_id: f"https://hh.ru/chat/{chat_id}"
     op.get_ai_reply = lambda chat, allow_manual=False: reply
     op.is_farewell = lambda text: False
@@ -95,3 +95,38 @@ def test_no_second_bump_without_answer(tmp_path, monkeypatch):
             {"id": 3, "participantId": "me", "text": "Актуальна ли вакансия?"}]
     op, chat = _ai_op(tmp_path, monkeypatch, ["Ещё раз напоминаю"], messages=mine, last_is_mine=True)
     assert op.get_ai_reply(chat) is None
+
+
+def _form_op(tmp_path, monkeypatch, value):
+    from hh_applicant_tool import google_forms as gf
+
+    op, chat = make(tmp_path, None)
+    op.fill_forms, op._viewed_messages = True, set()
+    chat.last_message = {"id": 1, "text": "Заполните анкету: https://forms.gle/abc"}
+    op.get_chat_placeholders = lambda c: {}
+    op.tool.get_resumes = lambda: []
+    op.tool.ai_chat_for = lambda *a, **k: object()
+    op.hand_to_human = lambda c, r, reason="": op.calls.append("human:" + reason)
+    q = gf.Question(entry_id=1, title="Телефон", type=0, required=True)
+    form = gf.Form(response_url="https://docs.google.com/forms/x/formResponse", title="Анкета", questions=[q])
+    monkeypatch.setattr(gf, "fetch_form", lambda url: form)
+    monkeypatch.setattr(gf, "answer_form", lambda f, p, ai: [(q, value)])
+    monkeypatch.setattr(gf, "submit_form", lambda f, a: op.calls.append("submit") or True)
+    return op, chat
+
+
+def test_form_filled_sent_and_logged(tmp_path, monkeypatch):
+    op, chat = _form_op(tmp_path, monkeypatch, "+79990001122")
+    op.process_chat(chat)
+    assert "submit" in op.calls and "send_chat_message" in op.calls
+    rec = journal(tmp_path)[-1]
+    assert rec["result"] == "form_sent" and rec["message"] == "Анкета: https://forms.gle/abc"
+    # Второй раз ту же анкету не трогаем
+    assert op.form_url(chat) is None
+
+
+def test_form_with_empty_required_goes_to_human(tmp_path, monkeypatch):
+    op, chat = _form_op(tmp_path, monkeypatch, "")
+    op.process_chat(chat)
+    assert "submit" not in op.calls and "send_chat_message" not in op.calls
+    assert any(c.startswith("human:") for c in op.calls)

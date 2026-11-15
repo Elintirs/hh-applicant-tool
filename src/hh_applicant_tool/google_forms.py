@@ -20,7 +20,7 @@ from typing import Any
 
 import requests
 
-from .operations.apply_vacancies import _TEST_RESUME_BLOCK, ai_call
+from .operations.apply_vacancies import JOURNAL_FILENAME, _TEST_RESUME_BLOCK, ai_call
 from .utils.string import choose_similar, render_template
 
 # Ссылку на форму ищем и в коротком виде forms.gle, и в полном docs.google.com
@@ -170,6 +170,24 @@ def fetch_form(url: str, session: requests.Session | None = None) -> Form:
             time.sleep(2)
     r.raise_for_status()
     return parse_form(r.text, r.url)
+
+
+def sent_at(config_dir: Any, url: str) -> str | None:
+    """Когда эту анкету уже отправляли (запись form_sent в журнале): повторная
+    придёт работодателю ещё раз."""
+    message, sent = "Анкета: " + url, None
+    try:
+        with (config_dir / JOURNAL_FILENAME).open(encoding="utf-8") as f:
+            for line in f:
+                # Журнал большой: разбираем только похожие строки
+                if "form_sent" not in line or url not in line:
+                    continue
+                rec = json.loads(line)
+                if rec.get("result") == "form_sent" and rec.get("message") == message:
+                    sent = rec.get("ts")
+    except (OSError, ValueError):
+        return None
+    return sent
 
 
 def answer_form(

@@ -25,8 +25,9 @@ from ..errors import XHRError
 from ..tool import BaseNamespace, BaseOperation
 from ..utils.date import parse_api_datetime
 from ..utils.string import choose_similar, render_template, shorten, split_words
+from .. import google_forms as gforms
 from .. import notify
-from .apply_vacancies import ai_call, append_journal, invented_numbers
+from .apply_vacancies import DEFAULT_TEST_SYSTEM_PROMPT, ai_call, append_journal, invented_numbers
 
 if TYPE_CHECKING:
     from ..tool import HHApplicantTool
@@ -575,6 +576,7 @@ class Namespace(BaseNamespace):
     dry_run: bool
     loop: bool
     only_bots: bool
+    fill_forms: bool
 
 
 class Operation(BaseOperation):
@@ -636,6 +638,12 @@ class Operation(BaseOperation):
             default=False,
             help="Отвечать только ботам и ИИ-помощникам работодателей, людей и напоминания пропускать",
         )
+        parser.add_argument(
+            "--fill-forms",
+            action=argparse.BooleanOptionalAction,
+            default=False,
+            help="Заполнять Google-анкеты из чатов ответами AI (в том числе от людей), отправлять и писать работодателю, что анкета заполнена",
+        )
 
     # ---------------------------------------------------------------- run
     @property
@@ -649,6 +657,7 @@ class Operation(BaseOperation):
         self.dry_run = args.dry_run
         self.loop = args.loop
         self.only_bots = args.only_bots
+        self.fill_forms = args.fill_forms
         self._store: ChatStore | None = None
 
         self.user_prompt: str = (
@@ -1010,8 +1019,9 @@ class Operation(BaseOperation):
                 self.leave_chat(chat.chat_id)
             return False
 
-        # Режим для частых запусков: только боты, людям отвечает общий прогон
-        if self.only_bots and (chat.last_is_mine or not chat.last_is_bot):
+        # Режим для частых запусков: только боты, людям отвечает общий прогон.
+        # Анкету по ссылке заполняем и от человека, если включено --fill-forms
+        if self.only_bots and (chat.last_is_mine or not chat.last_is_bot) and not self.form_url(chat):
             return False
 
         if chat.last_is_bot and not chat.last_is_mine:
@@ -1209,6 +1219,9 @@ class Operation(BaseOperation):
             "url": self.chat_referer(chat.chat_id),
             "message": (chat.last_message_text or "")[:1000],
         }
+        if url := self.form_url(chat):
+            self.fill_form(chat, url, rec)
+            return
         manual = False
         try:
             if self.ai_enabled:
@@ -1224,21 +1237,7 @@ class Operation(BaseOperation):
                 # Чат остаётся непрочитанным: его видно в панели и на hh
                 manual = True
                 rec["result"] = "chat_manual"
-                print(f"🙋 Чат #{chat.chat_id}: ответить самому ({rec['employer']})")
-                if not self.dry_run:
-                    # Один раз на сообщение: чат висит непрочитанным много запусков
-                    notify.send(
-                        self.tool.config,
-                        f"🙋 Ответить самому\n{rec['employer']} · {rec['vacancy']}\n\n"
-                        f"«{rec['message'][:500]}»\n\n{rec['url']}\n↩️ Ответь на это сообщение, чтобы написать работодателю",
-                        key=f"chat:{chat.chat_id}:{chat.last_message_id}",
-                        state_dir=self.tool.config_dir_path,
-                        # Кнопки обрабатывает бот панели; ответить можно реплаем
-                        buttons=[
-                            [("Открыть в hh", rec["url"])],
-                            [("✍️ Черновик AI", f"d:{chat.chat_id}"), ("✅ Готово", f"x:{chat.chat_id}")],
-                        ],
-                    )
+                self.hand_to_human(chat, rec)
                 return
 
             if self.is_farewell(send_message):
@@ -1287,6 +1286,80 @@ class Operation(BaseOperation):
             shorten(send_message, limit=1024),
         )
         append_journal(self.tool.config_dir_path, {**rec, "result": "chat_sent"})
+
+    def hand_to_human(self, chat: ProcessingChat, rec: dict[str, Any], reason: str = "") -> None:
+        """Чат остаётся непрочитанным, а в Telegram уходит «ответить самому»."""
+        print(f"🙋 Чат #{chat.chat_id}: ответить самому ({rec['employer']}){f' - {reason}' if reason else ''}")
+        if self.dry_run:
+            return
+        # Один раз на сообщение: чат висит непрочитанным много запусков
+        notify.send(
+            self.tool.config,
+            f"🙋 Ответить самому{f' ({reason})' if reason else ''}\n{rec['employer']} · {rec['vacancy']}\n\n"
+            f"«{rec['message'][:500]}»\n\n{rec['url']}\n↩️ Ответь на это сообщение, чтобы написать работодателю",
+            key=f"chat:{chat.chat_id}:{chat.last_message_id}",
+            state_dir=self.tool.config_dir_path,
+            # Кнопки обрабатывает бот панели; ответить можно реплаем
+            buttons=[
+                [("Открыть в hh", rec["url"])],
+                [("✍️ Черновик AI", f"d:{chat.chat_id}"), ("✅ Готово", f"x:{chat.chat_id}")],
+            ],
+        )
+
+    def form_url(self, chat: ProcessingChat) -> str | None:
+        """Ссылка на Google-анкету в последнем сообщении работодателя, если её
+        надо заполнить: включено --fill-forms, есть AI и анкету ещё не отправляли."""
+        if not self.fill_forms or not self.ai_enabled or chat.last_is_mine:
+            return None
+        url = gforms.find_form_url(chat.last_message_text or "")
+        if not url or gforms.sent_at(self.tool.config_dir_path, url):
+            return None
+        return url
+
+    def fill_form(self, chat: ProcessingChat, url: str, rec: dict[str, Any]) -> None:
+        """Заполняет анкету моделью, отправляет и пишет в чат. Что не вышло
+        (вход в Google, пустое обязательное поле, сбой) - отдаёт человеку."""
+        rec["message"] = "Анкета: " + url
+        try:
+            form = gforms.fetch_form(url)
+            if form.needs_login:
+                raise gforms.FormError("анкета требует входа в Google")
+            placeholders = self.get_chat_placeholders(chat)
+            resume = next((r for r in self.tool.get_resumes() if r["id"] == chat.resume_id), {})
+            placeholders["resume_url"] = resume.get("alternate_url") or ""
+            ai = self.tool.ai_chat_for(
+                "openai.test_solver", system_prompt=DEFAULT_TEST_SYSTEM_PROMPT, temperature=0
+            )
+            answers = gforms.answer_form(form, placeholders, ai)
+            empty = [q.title for q, value in answers if q.required and value in (None, "", [])]
+            if empty:
+                raise gforms.FormError("пусто в обязательных: " + "; ".join(t[:60] for t in empty))
+        except (gforms.FormError, OpenAIError, requests.RequestException, ApiError) as ex:
+            rec["result"], rec["error"] = "chat_manual", f"анкета: {ex}"
+            append_journal(self.tool.config_dir_path, rec)
+            self.hand_to_human(chat, rec, f"анкета: {ex}")
+            return
+        rec["form"] = [{"q": q.title[:300], "answer": value} for q, value in answers]
+        if self.dry_run:
+            rec["result"] = "chat_dry_run"
+            append_journal(self.tool.config_dir_path, rec)
+            print(f"dry-run: анкета в чате #{chat.chat_id}:")
+            for q, value in answers:
+                print(f"  {shorten(q.title, limit=80)}: {value}")
+            return
+        ok = gforms.submit_form(form, answers)
+        rec["result"] = "form_sent" if ok else "form_error"
+        append_journal(self.tool.config_dir_path, rec)
+        if not ok:
+            self.hand_to_human(chat, rec, "Google не принял анкету")
+            return
+        self.notify_chat_opened(chat.chat_id)
+        self.mark_chat_read(chat.chat_id, chat.last_message_id)
+        self.start_chat_typing(chat.chat_id)
+        self.send_chat_message(
+            chat.chat_id, "Заполнил анкету по ссылке.", refer_url=self.chat_referer(chat.chat_id)
+        )
+        print(f"📝 Анкета заполнена и отправлена, чат #{chat.chat_id}: {url}")
 
     def get_ai_reply(
         self,
