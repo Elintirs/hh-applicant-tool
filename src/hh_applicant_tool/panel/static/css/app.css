@@ -776,3 +776,5 @@ details.disclosure > summary:hover { color: var(--color-text); }
 .chat-fav svg { fill: currentColor; }
 .fav-toggle.is-on { color: var(--color-accent); }
 .fav-toggle.is-on svg { fill: currentColor; }
+/* Кнопки шапки чата не сжимаются и не переносятся: длинный заголовок обрезается многоточием */
+.chat-actions { flex: none; flex-wrap: nowrap; }

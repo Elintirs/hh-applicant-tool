@@ -276,7 +276,7 @@ export default async function chats(root, ctx) {
       h("div", { class: "card-header" },
         h("div", { class: "grow" }, h("h2", { class: "card-title truncate" }, c.title || "Чат"),
           h("p", { class: "card-hint truncate" }, c.vacancy_url ? h("a", { href: c.vacancy_url, target: "_blank", rel: "noopener noreferrer" }, c.vacancy || "Вакансия") : (c.vacancy || ""), c.subtitle ? `, ${c.subtitle}` : "")),
-        h("span", { class: "row" }, favBtn, leave)),
+        h("span", { class: "row chat-actions" }, favBtn, leave)),
       thread,
       h("div", { class: "chat-composer" },
         chipsEl,
