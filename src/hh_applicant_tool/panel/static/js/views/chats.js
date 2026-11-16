@@ -1,7 +1,7 @@
-import { get, post } from "../api.js";
+import { get, post, put } from "../api.js";
 import {
   h, mount, clear, button, textarea, toast, busy, empty, skeleton, errorState, pageHeader, segmented,
-  relTime, confirmDialog, select, callout, input, dateTime, autoMore,
+  relTime, confirmDialog, select, callout, input, dateTime, autoMore, icon,
 } from "../ui.js";
 
 const STATE = {
@@ -40,6 +40,7 @@ export default async function chats(root, ctx) {
     ["invite", "Приглашения и собеседования"],
     ["RESPONSE", "Отклики без ответа"],
     ["DISCARD", "Отказы"],
+    ["fav", "Избранные"],
     ["people", "Живые люди"],
     ["theirs", "Ждут меня (последнее от работодателя)"],
     ["mine", "Мой ответ последний"],
@@ -49,6 +50,7 @@ export default async function chats(root, ctx) {
     if (view.state === "invite" && !INVITE.has(c.state)) return false;
     if (view.state === "theirs" && c.last_is_mine) return false;
     if (view.state === "people" && c.kind !== "human") return false;
+    if (view.state === "fav" && !favs.has(c.id)) return false;
     if (view.state === "mine" && !c.last_is_mine) return false;
     if (["RESPONSE", "DISCARD"].includes(view.state) && c.state !== view.state) return false;
     if (!view.q) return true;
@@ -56,7 +58,19 @@ export default async function chats(root, ctx) {
   };
   const searchEl = input({ type: "search", placeholder: "Поиск: компания, вакансия, текст", "aria-label": "Поиск по чатам", oninput: (e) => { view.q = e.target.value.trim().toLowerCase(); renderList(); } });
   const sortEl = select([["new", "Сначала новые"], ["score", "Сначала важные"]], { "aria-label": "Порядок чатов", title: "Важные: приглашения от людей, потом люди, которые ждут ответа, боты в конце", onchange: (e) => { view.sort = e.target.value; renderList(); } });
-  const stateEl = select(STATE_FILTERS, { "aria-label": "Статус чата", onchange: (e) => { view.state = e.target.value; renderList(); } });
+  const stateEl = select(STATE_FILTERS, { "aria-label": "Статус чата", onchange: async (e) => { view.state = e.target.value; if (view.state === "fav") await addFavsFromCache(); renderList(); } });
+  // Избранные хранятся на сервере панели: одни и те же на всех устройствах
+  let favs = new Set();
+  get("chats/favorites").then((r) => { favs = new Set(r.ids || []); renderList(); }).catch(() => {});
+  // Избранный чат мог уйти глубоко вниз и не попасть в загруженные страницы: добираем из кэша
+  async function addFavsFromCache() {
+    if ([...favs].every((id) => list.some((c) => c.id === id))) return;
+    try {
+      const cached = (await get("chats/cached")).items || [];
+      const have = new Set(list.map((c) => c.id));
+      list = [...list, ...cached.filter((c) => favs.has(c.id) && !have.has(c.id))];
+    } catch { /* без кэша - только загруженные */ }
+  }
   const filtersEl = h("div", { class: "chat-filters" });
   const pane = h("section", { class: "card chat-pane", "aria-live": "off" });
 
@@ -115,7 +129,8 @@ export default async function chats(root, ctx) {
         h("div", { class: "subtle truncate" }, c.subtitle || ""),
         h("div", { class: "row-between" },
           h("span", { class: "chat-last truncate" }, c.last_is_mine ? "Вы: " : "", c.last_text || "Без текста"),
-          h("span", { class: "row" }, KIND[c.kind] ? h("span", { class: `badge plain ${KIND[c.kind][1]}`, title: (c.kind_reasons || []).join(", ") }, KIND[c.kind][0]) : null,
+          h("span", { class: "row" }, favs.has(c.id) ? h("span", { class: "chat-fav", title: "В избранном" }, icon("star", 14), h("span", { class: "sr-only" }, "В избранном")) : null,
+            KIND[c.kind] ? h("span", { class: `badge plain ${KIND[c.kind][1]}`, title: (c.kind_reasons || []).join(", ") }, KIND[c.kind][0]) : null,
             stateLabel ? h("span", { class: `badge plain ${kind ? "badge-" + kind : ""}` }, stateLabel) : null,
             c.unread ? h("span", { class: "count", "aria-label": `непрочитано: ${c.unread}` }, String(c.unread)) : null)));
     });
@@ -157,6 +172,18 @@ export default async function chats(root, ctx) {
     const send = button("Отправить", { variant: "primary", iconName: "send", disabled: !data.writable });
     const draft = button("Черновик от AI", { iconName: "sparkle", disabled: !data.writable || !c.can_ai });
     const leave = button("Покинуть чат", { variant: "ghost", iconName: "logout" });
+    const favBtn = button("", { variant: "ghost", iconName: "star", title: favs.has(id) ? "Убрать из избранного" : "В избранное", attrs: { "aria-pressed": String(favs.has(id)) } });
+    favBtn.classList.add("fav-toggle");
+    favBtn.classList.toggle("is-on", favs.has(id));
+    favBtn.addEventListener("click", () => busy(favBtn, async () => {
+      const on = !favs.has(id);
+      try { favs = new Set((await put(`chats/${id}/favorite`, { on })).ids || []); }
+      catch (err) { toast(err.message, "error"); return; }
+      favBtn.setAttribute("aria-pressed", String(on));
+      favBtn.classList.toggle("is-on", on);
+      favBtn.title = on ? "Убрать из избранного" : "В избранное";
+      renderList();
+    }));
     const fill = (text) => { composer.value = text; composer.focus(); composer.setSelectionRange(text.length, text.length); };
 
     send.addEventListener("click", () => busy(send, async () => {
@@ -249,7 +276,7 @@ export default async function chats(root, ctx) {
       h("div", { class: "card-header" },
         h("div", { class: "grow" }, h("h2", { class: "card-title truncate" }, c.title || "Чат"),
           h("p", { class: "card-hint truncate" }, c.vacancy_url ? h("a", { href: c.vacancy_url, target: "_blank", rel: "noopener noreferrer" }, c.vacancy || "Вакансия") : (c.vacancy || ""), c.subtitle ? `, ${c.subtitle}` : "")),
-        leave),
+        h("span", { class: "row" }, favBtn, leave)),
       thread,
       h("div", { class: "chat-composer" },
         chipsEl,

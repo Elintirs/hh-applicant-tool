@@ -53,3 +53,21 @@ def test_no_token_panel_rejects_foreign_host(tmp_path):
         assert call(base, "jobs", headers={"Host": "evil.example"})[0] == 403
     finally:
         srv.shutdown()
+
+
+def test_chat_favorites_toggle(panel):
+    status, headers = call(panel, "login", "POST", {"token": "secret-token"}, {"X-Panel-Request": "1"})
+    h = {"Cookie": headers["Set-Cookie"].split(";")[0], "X-Panel-Request": "1"}
+
+    def fav(cid, on):
+        req = urllib.request.Request(panel + f"chats/{cid}/favorite", method="PUT", headers=h,
+                                     data=json.dumps({"on": on}).encode())
+        with urllib.request.urlopen(req) as r:
+            return json.load(r)["ids"]
+
+    assert fav(7, True) == [7]
+    assert fav(9, True) == [7, 9]
+    assert fav(7, True) == [9, 7]  # повторное добавление не дублирует
+    assert fav(9, False) == [7]
+    with urllib.request.urlopen(urllib.request.Request(panel + "chats/favorites", headers=h)) as r:
+        assert json.load(r)["ids"] == [7]

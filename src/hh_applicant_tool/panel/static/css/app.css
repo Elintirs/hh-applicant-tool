@@ -772,3 +772,7 @@ details.disclosure > summary:hover { color: var(--color-text); }
 }
 
 .update-banner { position: fixed; left: 50%; bottom: var(--space-5); transform: translateX(-50%); z-index: 50; display: flex; align-items: center; gap: var(--space-3); max-width: calc(100vw - var(--space-8)); padding: var(--space-3) var(--space-4); border: 1px solid var(--color-border); border-radius: var(--radius-lg); background: var(--color-surface-raised); color: var(--color-text); box-shadow: var(--shadow-sm); }
+.chat-fav { display: inline-flex; color: var(--color-accent); }
+.chat-fav svg { fill: currentColor; }
+.fav-toggle.is-on { color: var(--color-accent); }
+.fav-toggle.is-on svg { fill: currentColor; }

@@ -985,6 +985,20 @@ def make_handler(app: PanelApp) -> type[BaseHTTPRequestHandler]:
         h.json(app.ctx().service.chats(h.query.get("from") or None, h.query.get("unread") == "1"))
 
     # Из кэша: панель рисует сразу, свежее догружает обычным запросом
+    # Избранные чаты: в хранилище панели, у каждого профиля свои
+    def fav_key() -> str:
+        return f"chat_favorites:{app.ctx().name}"
+
+    @route("GET", "chats/favorites")
+    def chat_favorites(h: Handler) -> None:
+        h.json({"ids": app.store.get(fav_key(), [])})
+
+    @route("PUT", "chats/:chat_id/favorite")
+    def chat_favorite(h: Handler, chat_id: str) -> None:
+        cid, on = int(chat_id), bool(h.body().get("on"))
+        ids = app.store.update(fav_key(), lambda ids: [i for i in ids or [] if i != cid] + ([cid] if on else []), [])
+        h.json({"ids": ids})
+
     @route("GET", "chats/cached")
     def chats_cached(h: Handler) -> None:
         h.json(app.ctx().service.chats_cached(h.query.get("unread") == "1"))
